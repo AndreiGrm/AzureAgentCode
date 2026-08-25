@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+history.db
+history.db-wal
+history.db-shm
+logs/

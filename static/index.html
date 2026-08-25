@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<title>Azure DevOps Agent — Dashboard</title>
+<link rel="stylesheet" href="/static/style.css?v=20260821-copilot-provider" />
+</head>
+<body>
+<div id="request-loader" class="request-loader" role="status" aria-live="polite" aria-busy="true" hidden>
+  <span class="request-loader-spinner" aria-hidden="true"></span>
+  <span id="request-loader-label">Caricamento...</span>
+</div>
+<dialog id="app-dialog" class="app-dialog" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message">
+  <form method="dialog" class="app-dialog-content">
+    <h2 id="app-dialog-title"></h2>
+    <p id="app-dialog-message"></p>
+    <div class="app-dialog-actions">
+      <button id="app-dialog-cancel" type="button">Annulla</button>
+      <button id="app-dialog-confirm" class="run-btn" value="confirm">Conferma</button>
+    </div>
+  </form>
+</dialog>
+<header>
+  <h1>Azure DevOps Agent</h1>
+  <div class="controls">
+    <div id="automatic-ingest-status" class="automatic-ingest-status" aria-live="polite">
+      <span class="automation-indicator" aria-hidden="true"></span>
+      <span id="automatic-ingest-label">Controllo automatico ogni 5 minuti</span>
+    </div>
+    <button id="btn-ingest" class="run-btn">Controlla ora</button>
+  </div>
+</header>
+
+<div id="app-body">
+  <aside id="sidebar">
+    <nav id="main-nav">
+      <button class="nav-btn" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="tickets">Ticket</button>
+      <button class="nav-btn" data-view="completed">Completed</button>
+      <button class="nav-btn" data-view="notifications">Notifiche <span id="notification-badge" hidden>0</span></button>
+      <button class="nav-btn" data-view="history">Storico</button>
+      <button class="nav-btn" data-view="settings">Impostazioni</button>
+    </nav>
+  </aside>
+
+  <main id="main-content">
+    <section id="status-panel">
+      <div class="status-card" id="status-ingest">
+        <h2>Ingest</h2>
+        <p class="status-line">Inattivo</p>
+        <div class="status-actions">
+          <button class="stop-btn" data-script="ingest" hidden>Ferma</button>
+          <button class="block-btn" hidden>Blocca ticket</button>
+        </div>
+      </div>
+      <div class="status-card" id="status-review">
+        <h2>Review</h2>
+        <p class="status-line">Inattivo</p>
+        <div class="status-actions">
+          <button class="stop-btn" data-script="review" hidden>Ferma</button>
+          <button class="block-btn" hidden>Blocca ticket</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-tickets">
+      <div class="ticket-section-header">
+        <h2>Ticket</h2>
+        <div class="ticket-tabs" role="tablist" aria-label="Filtri ticket">
+          <button class="ticket-tab active" data-ticket-tab="active" role="tab" aria-selected="true">Attivi</button>
+          <button class="ticket-tab" data-ticket-tab="attention" role="tab" aria-selected="false">
+            Da fare <span id="ticket-warning-badge" class="ticket-tab-badge warning" hidden></span>
+          </button>
+          <button class="ticket-tab" data-ticket-tab="issues" role="tab" aria-selected="false">
+            Problemi <span id="ticket-error-badge" class="ticket-tab-badge error" hidden></span>
+          </button>
+        </div>
+      </div>
+      <div id="tickets-list" class="ticket-card-list" aria-live="polite"></div>
+    </section>
+
+    <section id="view-completed">
+      <h2>Completed</h2>
+      <div id="completed-list" class="ticket-card-list" aria-live="polite"></div>
+    </section>
+
+    <section id="view-history">
+      <div class="history-header">
+        <h2>Storico</h2>
+        <input id="filter-ticket" type="number" placeholder="Filtra per ticket #" />
+      </div>
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th>Ora</th>
+            <th>Ticket</th>
+            <th>Branch</th>
+            <th>Azione</th>
+            <th>Messaggio</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </section>
+
+    <section id="view-dashboard">
+      <div class="dashboard-header">
+        <div>
+          <h2>Dashboard</h2>
+          <p class="hint">Metriche calcolate sui PBI completati nel periodo selezionato.</p>
+        </div>
+        <div class="dashboard-filters">
+          <label>
+            Dal
+            <input id="dashboard-from" type="date" />
+          </label>
+          <label>
+            Al
+            <input id="dashboard-to" type="date" />
+          </label>
+          <label>
+            Completamento
+            <select id="dashboard-completion-action">
+              <option value="all">Tutti</option>
+              <option value="pr_completed">PR completata</option>
+              <option value="closed">Chiuso manualmente</option>
+            </select>
+          </label>
+          <label>
+            Tipo
+            <select id="dashboard-work-item-type">
+              <option value="all">Tutti</option>
+              <option value="Product Backlog Item">PBI</option>
+              <option value="Bug">Bug</option>
+            </select>
+          </label>
+          <label>
+            Cerca
+            <input id="dashboard-search" type="search" placeholder="ID o titolo" />
+          </label>
+          <button id="dashboard-apply-btn" class="run-btn">Aggiorna</button>
+        </div>
+      </div>
+      <p id="dashboard-hint" class="hint"></p>
+      <section class="attention-panel">
+        <h3>Richiede la tua attenzione</h3>
+        <div id="attention-list" class="attention-list"></div>
+      </section>
+      <div class="dashboard-metrics">
+        <article class="metric-card">
+          <span>PBI completati</span>
+          <strong id="dashboard-completed-count">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Story point macinati</span>
+          <strong id="dashboard-story-points">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Token totali</span>
+          <strong id="dashboard-tokens">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Costo totale</span>
+          <strong id="dashboard-cost">$0.0000</strong>
+        </article>
+      </div>
+      <table id="dashboard-table">
+        <thead>
+          <tr>
+            <th>PBI</th>
+            <th>Titolo</th>
+            <th>Story point</th>
+            <th>Token</th>
+            <th>Costo</th>
+            <th>Completato il</th>
+          </tr>
+        </thead>
+        <tbody id="dashboard-body"></tbody>
+      </table>
+    </section>
+
+    <section id="view-notifications">
+      <div class="history-header">
+        <div>
+          <h2>Notifiche</h2>
+          <p class="hint">Eventi che richiedono attenzione o confermano un passaggio del flusso.</p>
+        </div>
+        <button id="notifications-refresh-btn">Aggiorna</button>
+      </div>
+      <div id="notifications-list" class="notifications-list"></div>
+    </section>
+
+    <section id="view-settings">
+      <h2>Impostazioni</h2>
+      <p class="hint">
+        Configurazione di Azure DevOps usata da ingest, review e da questa dashboard.
+        Il Personal Access Token non viene mai mostrato in chiaro: lascia il campo vuoto
+        per non modificarlo. Le modifiche vengono scritte nel file <code>.env</code> locale
+        e diventano subito attive, anche per i run avviati dai bottoni sopra.
+      </p>
+      <p class="hint">
+        Le voci <strong>Provider agente</strong>, <strong>Modello agente</strong>,
+        <strong>Limite token output</strong> e <strong>Budget token totale</strong>
+        sono menu a tendina. Per l'uso normale seleziona Claude Code e uno tra
+        Opus, Sonnet o Haiku.
+      </p>
+      <div id="settings-token-budget" class="usage-box" hidden>
+        <span>Budget token: <strong id="settings-token-budget-limit">Non impostato</strong></span>
+        <span>Utilizzati: <strong id="settings-token-budget-used">0</strong></span>
+        <span>Rimanenti: <strong id="settings-token-budget-remaining">Illimitati</strong></span>
+      </div>
+      <p id="settings-token-budget-hint" class="hint"></p>
+      <form id="settings-form"></form>
+      <div class="detail-actions">
+        <button id="settings-save-btn" class="run-btn" type="submit" form="settings-form">Salva impostazioni</button>
+      </div>
+      <p id="settings-hint" class="hint"></p>
+    </section>
+
+    <section id="ticket-detail-panel" hidden>
+      <button id="btn-back-to-list" class="back-btn">← Torna alla lista</button>
+      <button id="btn-close-ticket" class="back-btn">Chiudi ticket</button>
+      <h2 id="detail-heading"></h2>
+      <div class="detail-tabs" role="tablist" aria-label="Sezioni del ticket">
+        <button class="detail-tab active" data-detail-tab="details" role="tab" aria-selected="true">Dettagli</button>
+        <button class="detail-tab" data-detail-tab="workflow" role="tab" aria-selected="false">
+          Lavorazione <span id="detail-workflow-warning" class="detail-tab-badge warning" hidden></span>
+          <span id="detail-workflow-error" class="detail-tab-badge error" hidden></span>
+        </button>
+        <button class="detail-tab" data-detail-tab="chat" role="tab" aria-selected="false">Chat</button>
+        <button class="detail-tab" data-detail-tab="timeline" role="tab" aria-selected="false">Timeline</button>
+      </div>
+
+      <div class="detail-columns">
+        <div class="detail-left" id="detail-workitem">
+          <h3>Cosa deve essere fatto</h3>
+          <p id="detail-workitem-loading" class="hint">Caricamento...</p>
+          <div id="detail-title"></div>
+          <p id="detail-story-points" class="hint"></p>
+          <div id="detail-description"></div>
+          <div id="detail-acceptance"></div>
+          <div id="detail-figma-links"></div>
+        </div>
+
+        <div class="detail-right">
+          <p id="detail-status-line" class="status-line"></p>
+
+          <div id="usage-box" class="usage-box">
+            <span>Costo: <strong id="usage-cost">$0.00</strong></span>
+            <span>Token totali: <strong id="usage-tokens">0</strong></span>
+          </div>
+
+          <div id="plan-box" class="stage-box" hidden>
+            <h3>Piano implementativo</h3>
+            <textarea id="plan-input" rows="10"></textarea>
+            <div class="detail-actions">
+              <button id="plan-save-btn">Salva modifiche</button>
+              <button id="plan-approve-btn" class="run-btn">Approva e implementa</button>
+            </div>
+            <p id="plan-hint" class="hint"></p>
+          </div>
+
+          <div id="verify-box" class="stage-box" hidden>
+            <h3>Riassunto tecnico</h3>
+            <div id="verify-summary" class="detail"></div>
+            <div class="detail-actions">
+              <button id="quality-check-btn">Esegui verifiche</button>
+              <button id="review-code-btn">Avvia review</button>
+              <button id="create-pr-btn" class="run-btn" disabled>Crea PR</button>
+              <button id="create-pr-autocomplete-btn" class="run-btn" disabled>Crea PR con autocomplete</button>
+            </div>
+            <div id="quality-report" class="detail"></div>
+            <div id="review-report" class="detail"></div>
+            <textarea id="fix-input" rows="4" placeholder="Descrivi cosa correggere..."></textarea>
+            <button id="fix-send-btn">Richiedi correzione</button>
+            <p id="fix-hint" class="hint"></p>
+          </div>
+
+          <div id="pr-review-box" class="stage-box" hidden>
+            <h3>Review PR</h3>
+            <p class="hint">I commenti della PR vengono caricati automaticamente. Avvia una code review quando vuoi aggiungere nuovi feedback.</p>
+            <div class="detail-actions">
+              <button id="check-pr-btn" class="run-btn">Start code review</button>
+              <button id="read-comments-btn">Aggiorna commenti</button>
+            </div>
+            <p id="pr-review-hint" class="hint"></p>
+            <div id="check-pr-result" class="detail"></div>
+            <div id="pr-comments-list"></div>
+            <div id="pr-comment-batch-box" hidden>
+              <h4>Correzione selezionata</h4>
+              <p class="hint">Seleziona i commenti, genera il piano e approva separatamente le modifiche e il commit.</p>
+              <div class="detail-actions">
+                <button id="pr-comments-plan-btn">Crea piano selezionati</button>
+                <button id="pr-comments-apply-btn" hidden>Approva piano e applica modifiche</button>
+                <button id="pr-comments-commit-btn" class="run-btn" hidden>Approva commit e push</button>
+              </div>
+              <div id="pr-comment-batch-plan" class="detail"></div>
+              <p id="pr-comment-batch-hint" class="hint"></p>
+            </div>
+          </div>
+
+          <div id="completed-box" class="stage-box" hidden>
+            <h3>Ticket completato</h3>
+            <p id="completed-reason" class="detail"></p>
+            <button id="reopen-btn">Riapri</button>
+            <p id="reopen-hint" class="hint"></p>
+          </div>
+
+          <div id="correction-box" class="stage-box" hidden>
+            <h3>Correzione live</h3>
+            <p class="hint">L'agente sta lavorando adesso: la correzione interrompe il turno in corso.</p>
+            <textarea id="correction-input" rows="4" placeholder="Scrivi una correzione per l'agente..."></textarea>
+            <button id="correction-send-btn">Invia correzione</button>
+            <p id="correction-hint" class="hint"></p>
+          </div>
+
+          <div id="ticket-chat-box" class="stage-box">
+            <h3>Chat sul ticket</h3>
+            <p class="hint">Chiedi cosa fare dopo: l'agente prepara un piano, senza modificare o pubblicare codice.</p>
+            <div id="ticket-chat-messages" class="timeline-list"></div>
+            <textarea id="ticket-chat-input" rows="4" placeholder="Scrivi cosa deve ancora fare sul ticket..."></textarea>
+            <div class="detail-actions">
+              <button id="ticket-chat-send-btn" class="run-btn">Invia e prepara piano</button>
+            </div>
+            <p id="ticket-chat-hint" class="hint"></p>
+            <div class="detail-actions">
+              <button id="restart-ticket-btn" class="risk-btn">Riparti da zero</button>
+            </div>
+            <p class="hint">Cancella il branch locale del ticket e avvia una nuova pianificazione. Usalo se PR e branch sono stati eliminati.</p>
+          </div>
+
+          <h3 id="detail-timeline-heading">Timeline</h3>
+          <div id="detail-history-list" class="timeline-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/app.js?v=20260821-copilot-provider"></script>
+</body>
+</html>
