@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+import sys
 from socket import AF_INET, SOCK_STREAM, socket
 
 import uvicorn
@@ -30,6 +31,17 @@ def wait_for_dashboard() -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--worker":
+        worker = sys.argv[2]
+        if worker == "ingest":
+            from ingest_loop import main as worker_main
+        elif worker == "review":
+            from review_loop import main as worker_main
+        else:
+            raise ValueError(f"Worker sconosciuto: {worker}")
+        worker_main()
+        return
+
     if dashboard_is_running():
         return
 

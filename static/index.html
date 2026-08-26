@@ -20,6 +20,18 @@
     </div>
   </form>
 </dialog>
+<dialog id="onboarding-dialog" class="app-dialog" aria-labelledby="onboarding-title" aria-describedby="onboarding-message">
+  <form id="onboarding-form" class="app-dialog-content">
+    <h2 id="onboarding-title">Configura la dashboard</h2>
+    <p id="onboarding-message"></p>
+    <label id="onboarding-label" for="onboarding-input"></label>
+    <input id="onboarding-input" autocomplete="off" />
+    <p id="onboarding-hint" class="hint"></p>
+    <div class="app-dialog-actions">
+      <button id="onboarding-submit" class="run-btn" type="submit">Continua</button>
+    </div>
+  </form>
+</dialog>
 <header>
   <h1>Azure DevOps Agent</h1>
   <div class="controls">
@@ -215,6 +227,14 @@
         <button id="settings-save-btn" class="run-btn" type="submit" form="settings-form">Salva impostazioni</button>
       </div>
       <p id="settings-hint" class="hint"></p>
+      <section class="stage-box app-update-box">
+        <h3>Aggiornamenti applicazione</h3>
+        <p id="app-version-hint" class="hint">Versione installata: caricamento...</p>
+        <div class="detail-actions">
+          <button id="check-app-update-btn" type="button">Controlla aggiornamenti</button>
+          <button id="open-app-release-btn" class="run-btn" type="button" hidden>Apri download</button>
+        </div>
+      </section>
     </section>
 
     <section id="ticket-detail-panel" hidden>

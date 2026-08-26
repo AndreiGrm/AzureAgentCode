@@ -153,11 +153,19 @@ che richiede comprensione del codice o del commento.
 
 ## Dashboard desktop
 
-L'applicazione Windows distribuita si trova in
-`dist/Azure DevOps Agent Dashboard/Azure DevOps Agent Dashboard.exe`. Avviala
-dal collegamento sul desktop: apre una finestra nativa, senza browser. Il file
-`.env`, lo storico SQLite e i log restano esterni all'exe, nella stessa cartella
-del pacchetto.
+Per distribuire l'app ai colleghi, allega a una GitHub Release il file
+`installer-output/Azure-DevOps-Agent-Dashboard-Setup-1.0.0.exe`. L'installer
+crea la voce nel menu Start e, se selezionato, il collegamento sul desktop.
+
+Al primo avvio compare una procedura guidata che richiede configurazione Azure
+DevOps e agente. Non e' necessario creare o modificare manualmente `.env`: le
+impostazioni sono salvate localmente nel profilo Windows dell'utente, insieme
+allo storico e ai log, in `%LOCALAPPDATA%\Azure DevOps Agent Dashboard`.
+
+Nella pagina **Impostazioni** il pulsante **Controlla aggiornamenti** confronta
+la versione installata con l'ultima GitHub Release. Dopo aver pubblicato una
+release, il pulsante **Apri download** porta alla pagina da cui installare la
+nuova versione.
 
 ### Avvio diagnostico nel browser
 

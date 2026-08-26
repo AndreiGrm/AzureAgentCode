@@ -15,10 +15,13 @@ dashboard e' aperta, il lock non se ne accorge: evita di farlo.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import subprocess
 import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -30,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import history
+from app_version import APP_VERSION, GITHUB_REPOSITORY
 import quality_checks
 import review_loop
 import state
@@ -232,6 +236,57 @@ def _token_budget_from_environment() -> int | None:
 @app.get("/api/settings")
 def api_get_settings() -> list[dict]:
     return get_settings()
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    normalized = version.strip().lstrip("vV").split("-", 1)[0]
+    if not normalized:
+        raise ValueError("Versione vuota")
+    return tuple(int(part) for part in normalized.split("."))
+
+
+@app.get("/api/app-update")
+def api_app_update() -> dict:
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
+    request = UrlRequest(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Azure-DevOps-Agent-Dashboard",
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            release = json.load(response)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return {
+                "current_version": APP_VERSION,
+                "latest_version": None,
+                "update_available": False,
+                "release_url": "",
+                "release_name": "",
+            }
+        raise HTTPException(502, detail=f"GitHub ha risposto con HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise HTTPException(503, detail=f"Impossibile contattare GitHub: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(502, detail="GitHub ha restituito una release non valida") from exc
+
+    latest_version = str(release.get("tag_name", "")).strip()
+    if not latest_version:
+        raise HTTPException(502, detail="La release GitHub non contiene un tag versione")
+    try:
+        update_available = _version_key(latest_version) > _version_key(APP_VERSION)
+    except ValueError as exc:
+        raise HTTPException(502, detail=f"Tag release non valido: {latest_version}") from exc
+    return {
+        "current_version": APP_VERSION,
+        "latest_version": latest_version,
+        "update_available": update_available,
+        "release_url": release.get("html_url", ""),
+        "release_name": release.get("name") or latest_version,
+    }
 
 
 @app.get("/api/token-budget")
@@ -470,8 +525,13 @@ def _start_script_process(script: str, extra_env: dict | None = None) -> dict:
     # non coincidere col PAT impostato nella pagina Impostazioni.
     if "AZURE_DEVOPS_PAT" in env:
         env.setdefault("AZURE_DEVOPS_EXT_PAT", env["AZURE_DEVOPS_PAT"])
+    command = (
+        [sys.executable, "--worker", script]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, SCRIPTS[script]]
+    )
     process = subprocess.Popen(
-        [sys.executable, SCRIPTS[script]],
+        command,
         cwd=WORKFLOW_DIR, stdout=log_file, stderr=subprocess.STDOUT, env=env,
     )
     log_file.close()

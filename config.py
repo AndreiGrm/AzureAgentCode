@@ -7,19 +7,35 @@ errore chiaro, invece di proseguire con credenziali indovinate.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from azure.devops.connection import Connection
 from dotenv import load_dotenv
 from msrest.authentication import BasicAuthentication
-from runtime_paths import data_dir
+from runtime_paths import data_dir, legacy_data_dirs
 
-# Carica le variabili da un file .env nella cartella corrente, se presente.
+ENV_PATH = data_dir() / ".env"
+
+
+def _migrate_legacy_env() -> None:
+    if ENV_PATH.exists():
+        return
+    for directory in legacy_data_dirs():
+        legacy_path = directory / ".env"
+        if legacy_path.is_file():
+            shutil.copy2(legacy_path, ENV_PATH)
+            return
+
+
+_migrate_legacy_env()
+
+# Carica le variabili dal file .env dell'utente, se presente.
 # Non sovrascrive variabili già impostate nell'ambiente (es. da Task
 # Scheduler o da un export nella shell), quindi resta compatibile con chi
 # preferisce non usare un file .env.
-load_dotenv()
+load_dotenv(ENV_PATH)
 
 
 class ConfigError(RuntimeError):
@@ -96,9 +112,6 @@ SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
 SETTINGS_DEFAULTS = {
     "AGENT_PROVIDER": "claude_sdk",
 }
-
-ENV_PATH = data_dir() / ".env"
-
 
 def _mask_secret(value: str) -> str:
     if not value:

@@ -15,7 +15,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from runtime_paths import data_dir
+from runtime_paths import data_dir, legacy_data_dirs
 
 DB_PATH = data_dir() / "history.db"
 
@@ -178,8 +178,12 @@ def _migrate_legacy_history_if_empty() -> None:
     if not getattr(sys, "frozen", False) or _event_count(DB_PATH):
         return
 
-    legacy_path = data_dir().parent.parent / DB_PATH.name
-    if _event_count(legacy_path) == 0:
+    legacy_path = next(
+        (directory / DB_PATH.name for directory in legacy_data_dirs()
+         if _event_count(directory / DB_PATH.name) > 0),
+        None,
+    )
+    if legacy_path is None:
         return
 
     temporary_path = DB_PATH.with_suffix(".migration.db")

@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
+
+
+APP_DATA_DIR_NAME = "Azure DevOps Agent Dashboard"
 
 
 def resource_dir() -> Path:
@@ -13,7 +17,20 @@ def resource_dir() -> Path:
 
 
 def data_dir() -> Path:
-    """Directory accanto all'exe per configurazione, storico e log."""
+    """Directory scrivibile che conserva dati e configurazione dell'utente."""
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            raise RuntimeError("LOCALAPPDATA non e' disponibile per salvare i dati dell'app.")
+        path = Path(local_app_data) / APP_DATA_DIR_NAME
+        path.mkdir(parents=True, exist_ok=True)
+        return path
     return Path(__file__).resolve().parent
+
+
+def legacy_data_dirs() -> tuple[Path, ...]:
+    """Directory usate dalle build desktop precedenti, per la migrazione iniziale."""
+    if not getattr(sys, "frozen", False):
+        return ()
+    executable_dir = Path(sys.executable).resolve().parent
+    return (executable_dir, executable_dir.parent.parent)

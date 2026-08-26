@@ -792,6 +792,7 @@ async function loadSettings() {
     return;
   }
   renderSettingsForm(fields);
+  showOnboardingForMissingField(fields);
   try {
     renderTokenBudget(await fetchJson("/api/token-budget"));
   } catch (err) {
@@ -801,6 +802,106 @@ async function loadSettings() {
     document.getElementById("settings-token-budget-hint").textContent =
       "Riavvia la dashboard per visualizzare il budget token.";
   }
+  await checkAppUpdate();
+}
+
+let onboardingFields = [];
+let onboardingSubmitting = false;
+
+function showOnboardingForMissingField(fields) {
+  onboardingFields = fields.filter((field) => field.required && !field.is_set);
+  const dialog = document.getElementById("onboarding-dialog");
+  if (onboardingFields.length === 0) {
+    if (dialog.open) dialog.close();
+    return;
+  }
+
+  const field = onboardingFields[0];
+  document.getElementById("onboarding-message").textContent =
+    `Primo avvio: passo ${fields.filter((item) => item.required).length - onboardingFields.length + 1} di ${fields.filter((item) => item.required).length}.`;
+  const label = document.getElementById("onboarding-label");
+  label.textContent = field.label;
+  const input = document.getElementById("onboarding-input");
+  input.type = field.secret ? "password" : "text";
+  input.value = "";
+  input.placeholder = field.secret ? "Inserisci un valore sicuro" : "";
+  input.required = true;
+  input.dataset.settingsKey = field.key;
+  document.getElementById("onboarding-hint").textContent =
+    "Questa impostazione viene salvata solo nel tuo profilo Windows.";
+  if (!dialog.open) dialog.showModal();
+  input.focus();
+}
+
+async function saveOnboardingField(event) {
+  event.preventDefault();
+  if (onboardingSubmitting) return;
+  const input = document.getElementById("onboarding-input");
+  const hint = document.getElementById("onboarding-hint");
+  const value = input.value.trim();
+  if (!value) {
+    hint.textContent = "Inserisci un valore prima di continuare.";
+    hint.classList.add("error");
+    return;
+  }
+
+  onboardingSubmitting = true;
+  document.getElementById("onboarding-submit").disabled = true;
+  hint.classList.remove("error");
+  hint.textContent = "Salvataggio...";
+  try {
+    const fields = await fetchJson("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values: { [input.dataset.settingsKey]: value } }),
+    });
+    renderSettingsForm(fields);
+    showOnboardingForMissingField(fields);
+    if (onboardingFields.length === 0) {
+      await loadConfig();
+      await Promise.all([loadDashboard(), refreshAutomaticIngestStatus(), tick()]);
+    }
+  } catch (err) {
+    hint.textContent = `Salvataggio non riuscito: ${err.message}`;
+    hint.classList.add("error");
+  } finally {
+    onboardingSubmitting = false;
+    document.getElementById("onboarding-submit").disabled = false;
+  }
+}
+
+let appReleaseUrl = "";
+
+async function checkAppUpdate() {
+  const hint = document.getElementById("app-version-hint");
+  const checkButton = document.getElementById("check-app-update-btn");
+  const releaseButton = document.getElementById("open-app-release-btn");
+  checkButton.disabled = true;
+  releaseButton.hidden = true;
+  hint.classList.remove("error");
+  hint.textContent = "Controllo aggiornamenti...";
+  try {
+    const update = await fetchJson("/api/app-update");
+    appReleaseUrl = update.release_url;
+    if (update.update_available) {
+      hint.textContent = `Versione installata: ${update.current_version}. È disponibile ${update.latest_version}.`;
+      releaseButton.hidden = !appReleaseUrl;
+    } else if (!update.latest_version) {
+      hint.textContent = `Versione installata: ${update.current_version}. Non è ancora stata pubblicata una Release GitHub.`;
+    } else {
+      hint.textContent = `Versione installata: ${update.current_version}. Hai già l'ultima versione (${update.latest_version}).`;
+    }
+  } catch (err) {
+    appReleaseUrl = "";
+    hint.textContent = `Impossibile controllare gli aggiornamenti: ${err.message}`;
+    hint.classList.add("error");
+  } finally {
+    checkButton.disabled = false;
+  }
+}
+
+function openAppRelease() {
+  if (appReleaseUrl) window.open(appReleaseUrl, "_blank", "noopener");
 }
 
 function renderTokenBudget(budget) {
@@ -1994,6 +2095,12 @@ document.getElementById("create-pr-autocomplete-btn").addEventListener("click", 
 document.getElementById("ticket-chat-send-btn").addEventListener("click", sendTicketChatMessage);
 document.getElementById("restart-ticket-btn").addEventListener("click", restartTicketFromScratch);
 document.getElementById("settings-form").addEventListener("submit", saveSettings);
+document.getElementById("check-app-update-btn").addEventListener("click", checkAppUpdate);
+document.getElementById("open-app-release-btn").addEventListener("click", openAppRelease);
+document.getElementById("onboarding-form").addEventListener("submit", saveOnboardingField);
+document.getElementById("onboarding-dialog").addEventListener("cancel", (event) => {
+  if (onboardingFields.length > 0) event.preventDefault();
+});
 document.getElementById("dashboard-apply-btn").addEventListener("click", loadDashboard);
 document.getElementById("notifications-refresh-btn").addEventListener("click", loadNotifications);
 
