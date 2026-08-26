@@ -78,6 +78,8 @@ SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
     ("AGENT_COMMAND", "Comando agente esterno (legge il prompt da stdin)", False, False),
     ("AGENT_MAX_OUTPUT_TOKENS", "Limite token di output per esecuzione", False, False),
     ("AGENT_TOKEN_BUDGET", "Budget token totale", False, False),
+    ("GRAPHIFY_ENABLED", "Usa Graphify per ricerca e piani", False, False),
+    ("GRAPHIFY_COMMAND", "Comando Graphify (percorso dell'eseguibile)", False, False),
 ]
 
 SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
@@ -107,10 +109,15 @@ SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
         ("5000000", "5.000.000 token"),
         ("10000000", "10.000.000 token"),
     ],
+    "GRAPHIFY_ENABLED": [
+        ("true", "Attivo"),
+        ("false", "Disattivo"),
+    ],
 }
 
 SETTINGS_DEFAULTS = {
     "AGENT_PROVIDER": "claude_sdk",
+    "GRAPHIFY_ENABLED": "false",
 }
 
 def _mask_secret(value: str) -> str:

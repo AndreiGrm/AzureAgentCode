@@ -296,6 +296,31 @@ def get_history(limit: int = 200, work_item_id: int | None = None) -> list[dict]
         return [dict(row) for row in rows]
 
 
+def get_latest_event_for_action(action: str) -> dict | None:
+    """Restituisce l'ultimo evento di una specifica automazione."""
+    init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM events WHERE action = ? ORDER BY id DESC LIMIT 1",
+            (action,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def get_latest_event_for_actions(actions: tuple[str, ...]) -> dict | None:
+    """Restituisce l'evento più recente fra più azioni correlate."""
+    if not actions:
+        return None
+    init_db()
+    placeholders = ", ".join("?" for _ in actions)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT * FROM events WHERE action IN ({placeholders}) ORDER BY id DESC LIMIT 1",
+            actions,
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def get_tickets(limit: int = 100) -> list[dict]:
     """Un rigo per ticket: l'ultimo evento che modifica il workflow.
 

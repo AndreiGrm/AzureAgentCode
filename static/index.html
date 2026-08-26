@@ -51,6 +51,7 @@
       <button class="nav-btn" data-view="completed">Completed</button>
       <button class="nav-btn" data-view="notifications">Notifiche <span id="notification-badge" hidden>0</span></button>
       <button class="nav-btn" data-view="history">Storico</button>
+      <button class="nav-btn" data-view="graphify">Graphify</button>
       <button class="nav-btn" data-view="settings">Impostazioni</button>
     </nav>
   </aside>
@@ -202,6 +203,43 @@
       <div id="notifications-list" class="notifications-list"></div>
     </section>
 
+    <section id="view-graphify">
+      <div class="history-header">
+        <div>
+          <h2>Graphify</h2>
+          <p class="hint">Verifica il grafo e prova una ricerca senza usare token dell'agente AI.</p>
+        </div>
+        <button id="graphify-refresh-btn">Verifica connessione</button>
+      </div>
+      <div class="stage-box">
+        <h3>Stato connessione</h3>
+        <p id="graphify-view-status" class="hint">Caricamento...</p>
+        <dl class="graphify-details">
+          <dt>Comando</dt>
+          <dd id="graphify-command">—</dd>
+          <dt>Grafo</dt>
+          <dd id="graphify-graph-path">—</dd>
+          <dt>Aggiornamento</dt>
+          <dd id="graphify-schedule">—</dd>
+        </dl>
+        <details id="graphify-dev-diagnostics" class="graphify-dev-diagnostics" hidden>
+          <summary>Dettagli tecnici dell'ultimo errore (solo sviluppo)</summary>
+          <p id="graphify-dev-reason" class="hint"></p>
+          <pre id="graphify-dev-log" class="graphify-result"></pre>
+        </details>
+      </div>
+      <div class="stage-box">
+        <h3>Interroga il grafo</h3>
+        <p class="hint">Esempio: “Dove viene gestita la creazione delle pull request?”</p>
+        <textarea id="graphify-query-input" rows="4" placeholder="Scrivi una domanda sul repository..."></textarea>
+        <div class="detail-actions">
+          <button id="graphify-query-btn" class="run-btn">Cerca nel grafo</button>
+        </div>
+        <p id="graphify-query-hint" class="hint"></p>
+        <pre id="graphify-query-result" class="graphify-result" hidden></pre>
+      </div>
+    </section>
+
     <section id="view-settings">
       <h2>Impostazioni</h2>
       <p class="hint">
@@ -227,6 +265,11 @@
         <button id="settings-save-btn" class="run-btn" type="submit" form="settings-form">Salva impostazioni</button>
       </div>
       <p id="settings-hint" class="hint"></p>
+      <section class="stage-box app-update-box">
+        <h3>Graphify</h3>
+        <p class="hint">Se attivo, l'app interroga il grafo prima di esplorare il codice durante ricerca e creazione dei piani. Ogni 24 ore aggiorna solo il grafo e apre una PR separata soltanto se trova modifiche.</p>
+        <p id="graphify-status-hint" class="hint">Stato Graphify: caricamento...</p>
+      </section>
       <section class="stage-box app-update-box">
         <h3>Aggiornamenti applicazione</h3>
         <p id="app-version-hint" class="hint">Versione installata: caricamento...</p>

@@ -167,6 +167,20 @@ la versione installata con l'ultima GitHub Release. Dopo aver pubblicato una
 release, il pulsante **Apri download** porta alla pagina da cui installare la
 nuova versione.
 
+### Graphify
+
+Nelle **Impostazioni** attiva Graphify e indica il percorso dell'eseguibile
+`graphify` se non è già nel `PATH` di Windows. Quando il grafo è pronto,
+l'app lo usa come primo contesto nella ricerca, nella creazione dei piani e
+nella pianificazione dei commenti PR, riducendo l'esplorazione del codice
+necessaria all'agente.
+
+Con Graphify attivo, la dashboard esegue ogni 24 ore soltanto
+`graphify update <REPO_PATH>`. Se il comando modifica `graphify-out`, crea una
+PR indipendente con titolo `chore: aggiornamento giornaliero Graphify`; se non
+ci sono modifiche, non viene aperta nessuna PR. L'aggiornamento non invoca il
+provider AI della dashboard.
+
 ### Avvio diagnostico nel browser
 
 ```bash

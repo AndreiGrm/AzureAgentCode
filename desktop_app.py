@@ -37,6 +37,8 @@ def main() -> None:
             from ingest_loop import main as worker_main
         elif worker == "review":
             from review_loop import main as worker_main
+        elif worker == "graphify":
+            from graphify_update import main as worker_main
         else:
             raise ValueError(f"Worker sconosciuto: {worker}")
         worker_main()

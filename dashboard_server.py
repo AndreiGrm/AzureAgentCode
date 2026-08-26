@@ -40,6 +40,7 @@ import state
 from claude_runner import run_claude
 from config import ConfigError, get_connection, get_settings, load_config, update_settings, SETTINGS_SCHEMA
 from graphify_context import get_graphify_context
+from graphify_context import graphify_status
 from runtime_paths import data_dir, resource_dir
 
 WORKFLOW_DIR = data_dir()
@@ -49,13 +50,20 @@ LOGS_DIR = data_dir() / "logs"
 SCRIPTS = {
     "ingest": "ingest_loop.py",
     "review": "review_loop.py",
+    "graphify": "graphify_update.py",
 }
 
 # Unico run attivo alla volta: {"script": str, "process": Popen, "run_id": int} o vuoto.
 _active: dict = {"script": None, "process": None, "run_id": None}
 
 AUTO_INGEST_INTERVAL = timedelta(minutes=5)
+GRAPHIFY_UPDATE_INTERVAL = timedelta(hours=24)
 _automatic_ingest_schedule: dict = {
+    "last_check": None,
+    "next_check": None,
+    "outcome": "not started",
+}
+_graphify_update_schedule: dict = {
     "last_check": None,
     "next_check": None,
     "outcome": "not started",
@@ -90,10 +98,16 @@ async def lifespan(app: FastAPI):
         next_check=_schedule_timestamp(datetime.now(timezone.utc) + AUTO_INGEST_INTERVAL),
         outcome="waiting for first scheduled check",
     )
+    _graphify_update_schedule.update(
+        last_check=None,
+        next_check=_schedule_timestamp(datetime.now(timezone.utc)),
+        outcome="waiting for Graphify configuration",
+    )
     scheduler_task = asyncio.create_task(
         _automatic_ingest_loop(), name="automatic-ingest-scheduler"
     )
     app.state.automatic_ingest_scheduler_task = scheduler_task
+    _perform_graphify_update_check()
     try:
         yield
     finally:
@@ -159,8 +173,8 @@ def _schedule_timestamp(value: datetime) -> str:
     return value.isoformat()
 
 
-def _active_ingest_or_review() -> str | None:
-    """Restituisce il run ingest/review attivo, anche se non l'ha avviato il server."""
+def _active_workflow() -> str | None:
+    """Restituisce qualsiasi workflow che sta usando la working copy git."""
     _reconcile_active_process()
     if _active["script"] in SCRIPTS and _active["process"] is not None:
         return _active["script"]
@@ -175,7 +189,7 @@ def _perform_automatic_ingest_check() -> None:
     checked_at = datetime.now(timezone.utc)
     _automatic_ingest_schedule["last_check"] = _schedule_timestamp(checked_at)
 
-    active_script = _active_ingest_or_review()
+    active_script = _active_workflow()
     if active_script is not None:
         _automatic_ingest_schedule["outcome"] = f"skipped: {active_script} run is active"
         return
@@ -192,12 +206,54 @@ def _perform_automatic_ingest_check() -> None:
         _automatic_ingest_schedule["outcome"] = f"started ingest run {run['run_id']}"
 
 
+def _perform_graphify_update_check() -> None:
+    """Avvia un singolo aggiornamento Graphify ogni 24 ore, solo se configurato."""
+    checked_at = datetime.now(timezone.utc)
+    _graphify_update_schedule["last_check"] = _schedule_timestamp(checked_at)
+    try:
+        cfg = load_config()
+    except ConfigError:
+        _graphify_update_schedule["outcome"] = "waiting: Azure DevOps configuration incomplete"
+        return
+    status = graphify_status(cfg.repo_path)
+    if not status["enabled"]:
+        _graphify_update_schedule["outcome"] = "disabled"
+        return
+
+    latest = history.get_latest_event_for_action("graphify_update_finished")
+    if latest:
+        last_finished = datetime.fromisoformat(latest["ts"])
+        if last_finished.tzinfo is None:
+            last_finished = last_finished.replace(tzinfo=timezone.utc)
+        if checked_at - last_finished < GRAPHIFY_UPDATE_INTERVAL:
+            _graphify_update_schedule["outcome"] = "waiting: last update is less than 24 hours ago"
+            return
+
+    active_script = _active_workflow()
+    if active_script is not None:
+        _graphify_update_schedule["outcome"] = f"skipped: {active_script} run is active"
+        return
+    try:
+        run = _start_script_process("graphify")
+    except HTTPException as exc:
+        _graphify_update_schedule["outcome"] = f"skipped: {exc.detail}"
+    except Exception:
+        logging.exception("Scheduled Graphify update failed to start")
+        _graphify_update_schedule["outcome"] = "error: unable to start Graphify update"
+    else:
+        _graphify_update_schedule["outcome"] = f"started Graphify update run {run['run_id']}"
+
+
 async def _automatic_ingest_loop() -> None:
     """Esegue i controlli periodici; il task viene cancellato dal lifespan."""
     while True:
         await asyncio.sleep(AUTO_INGEST_INTERVAL.total_seconds())
         _perform_automatic_ingest_check()
+        _perform_graphify_update_check()
         _automatic_ingest_schedule["next_check"] = _schedule_timestamp(
+            datetime.now(timezone.utc) + AUTO_INGEST_INTERVAL
+        )
+        _graphify_update_schedule["next_check"] = _schedule_timestamp(
             datetime.now(timezone.utc) + AUTO_INGEST_INTERVAL
         )
 
@@ -238,11 +294,61 @@ def api_get_settings() -> list[dict]:
     return get_settings()
 
 
+@app.get("/api/graphify/status")
+def api_graphify_status() -> dict:
+    cfg = load_config()
+    _reconcile_active_process()
+    latest_event = history.get_latest_event_for_actions(
+        ("graphify_update_finished", "graphify_update_error")
+    )
+    if latest_event and latest_event["action"] == "graphify_update_error":
+        _graphify_update_schedule["outcome"] = f"last run failed: {latest_event['message']}"
+    diagnostics = None
+    if not getattr(sys, "frozen", False) and latest_event and latest_event["action"] == "graphify_update_error":
+        log_path = LOGS_DIR / f"graphify_{latest_event['run_id']}.log"
+        diagnostics = {
+            "reason": latest_event["message"],
+            "traceback": latest_event["detail"] or "",
+            "log": log_path.read_text(encoding="utf-8", errors="replace")[-8_000:]
+            if log_path.is_file() else "",
+        }
+    return {
+        **graphify_status(cfg.repo_path),
+        "schedule": _graphify_update_schedule,
+        "interval_hours": int(GRAPHIFY_UPDATE_INTERVAL.total_seconds() // 3600),
+        "latest_event": latest_event,
+        "development_diagnostics": diagnostics,
+    }
+
+
 def _version_key(version: str) -> tuple[int, ...]:
     normalized = version.strip().lstrip("vV").split("-", 1)[0]
     if not normalized:
         raise ValueError("Versione vuota")
     return tuple(int(part) for part in normalized.split("."))
+
+
+class GraphifyQuery(BaseModel):
+    question: str = Field(min_length=1, max_length=8_000)
+
+
+@app.post("/api/graphify/query")
+def api_graphify_query(body: GraphifyQuery) -> dict:
+    cfg = load_config()
+    status = graphify_status(cfg.repo_path)
+    if not status["enabled"]:
+        raise HTTPException(409, detail="Attiva Graphify nelle Impostazioni prima di interrogarlo")
+    if not status["ready"]:
+        raise HTTPException(409, detail=status["message"])
+    context = get_graphify_context(cfg.repo_path, body.question)
+    prefix = "Contesto Graphify (usalo come primo riferimento, poi verifica nei file):\n"
+    if not context.startswith(prefix):
+        raise HTTPException(502, detail=context)
+    return {
+        "question": body.question,
+        "result": context.removeprefix(prefix),
+        "graph_path": status["graph_path"],
+    }
 
 
 @app.get("/api/app-update")
@@ -316,10 +422,14 @@ def api_update_settings(body: SettingsUpdate) -> list[dict]:
                 400,
                 detail="AGENT_PROVIDER deve essere 'claude_sdk', 'command' oppure 'copilot_cli'",
             )
+        if key == "GRAPHIFY_ENABLED" and value not in {"true", "false"}:
+            raise HTTPException(400, detail="GRAPHIFY_ENABLED deve essere 'true' oppure 'false'")
         updates[key] = value
 
     if updates:
         update_settings(updates)
+        if {"GRAPHIFY_ENABLED", "GRAPHIFY_COMMAND"} & updates.keys():
+            _perform_graphify_update_check()
     return get_settings()
 
 

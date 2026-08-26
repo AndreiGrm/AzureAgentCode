@@ -619,6 +619,7 @@ function applyLayout() {
   document.getElementById("view-history").hidden = inDetail || currentNav !== "history";
   document.getElementById("view-dashboard").hidden = inDetail || currentNav !== "dashboard";
   document.getElementById("view-notifications").hidden = inDetail || currentNav !== "notifications";
+  document.getElementById("view-graphify").hidden = inDetail || currentNav !== "graphify";
   document.getElementById("view-settings").hidden = inDetail || currentNav !== "settings";
   document.getElementById("ticket-detail-panel").hidden = !inDetail;
 }
@@ -630,6 +631,7 @@ function showNav(view) {
   if (view === "settings") loadSettings();
   if (view === "dashboard") loadDashboard();
   if (view === "notifications") loadNotifications();
+  if (view === "graphify") loadGraphifyView();
 }
 
 // --- Notifiche --------------------------------------------------------------
@@ -793,6 +795,7 @@ async function loadSettings() {
   }
   renderSettingsForm(fields);
   showOnboardingForMissingField(fields);
+  await loadGraphifyStatus();
   try {
     renderTokenBudget(await fetchJson("/api/token-budget"));
   } catch (err) {
@@ -803,6 +806,85 @@ async function loadSettings() {
       "Riavvia la dashboard per visualizzare il budget token.";
   }
   await checkAppUpdate();
+}
+
+async function loadGraphifyStatus() {
+  const hint = document.getElementById("graphify-status-hint");
+  hint.classList.remove("error");
+  try {
+    const graphify = await fetchJson("/api/graphify/status");
+    const schedule = graphify.schedule;
+    const scheduleText = schedule.outcome
+      ? ` Aggiornamento ogni ${graphify.interval_hours} ore: ${schedule.outcome}.`
+      : "";
+    hint.textContent = `${graphify.message}${scheduleText}`;
+    hint.classList.toggle("error", graphify.enabled && !graphify.ready);
+  } catch (err) {
+    hint.textContent = `Stato Graphify non disponibile: ${err.message}`;
+    hint.classList.add("error");
+  }
+}
+
+async function loadGraphifyView() {
+  const statusEl = document.getElementById("graphify-view-status");
+  statusEl.textContent = "Verifica connessione Graphify...";
+  statusEl.classList.remove("error");
+  try {
+    const graphify = await fetchJson("/api/graphify/status");
+    statusEl.textContent = graphify.message;
+    statusEl.classList.toggle("error", graphify.enabled && !graphify.ready);
+    document.getElementById("graphify-command").textContent = graphify.command || "Non configurato";
+    document.getElementById("graphify-graph-path").textContent = graphify.graph_path || "Non disponibile";
+    document.getElementById("graphify-schedule").textContent =
+      `Ogni ${graphify.interval_hours} ore — ${graphify.schedule.outcome}`;
+    const diagnostics = document.getElementById("graphify-dev-diagnostics");
+    if (graphify.development_diagnostics) {
+      diagnostics.hidden = false;
+      document.getElementById("graphify-dev-reason").textContent =
+        graphify.development_diagnostics.reason;
+      document.getElementById("graphify-dev-log").textContent =
+        graphify.development_diagnostics.log ||
+        graphify.development_diagnostics.traceback ||
+        "Nessun dettaglio aggiuntivo nel log.";
+    } else {
+      diagnostics.hidden = true;
+    }
+  } catch (err) {
+    statusEl.textContent = `Verifica non riuscita: ${err.message}`;
+    statusEl.classList.add("error");
+  }
+}
+
+async function queryGraphify() {
+  const input = document.getElementById("graphify-query-input");
+  const hint = document.getElementById("graphify-query-hint");
+  const result = document.getElementById("graphify-query-result");
+  const question = input.value.trim();
+  if (!question) {
+    hint.textContent = "Scrivi una domanda sul repository.";
+    hint.classList.add("error");
+    return;
+  }
+  const button = document.getElementById("graphify-query-btn");
+  button.disabled = true;
+  hint.classList.remove("error");
+  hint.textContent = "Ricerca nel grafo in corso...";
+  result.hidden = true;
+  try {
+    const response = await fetchJson("/api/graphify/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    hint.textContent = `Risultato letto da ${response.graph_path}`;
+    result.textContent = response.result || "Graphify non ha trovato nodi corrispondenti.";
+    result.hidden = false;
+  } catch (err) {
+    hint.textContent = `Ricerca Graphify non riuscita: ${err.message}`;
+    hint.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 let onboardingFields = [];
@@ -857,6 +939,7 @@ async function saveOnboardingField(event) {
     });
     renderSettingsForm(fields);
     showOnboardingForMissingField(fields);
+    await loadGraphifyStatus();
     if (onboardingFields.length === 0) {
       await loadConfig();
       await Promise.all([loadDashboard(), refreshAutomaticIngestStatus(), tick()]);
@@ -1023,6 +1106,7 @@ async function saveSettings(e) {
     renderSettingsForm(fields);
     hint.textContent = "Impostazioni salvate.";
     await loadConfig();
+    await loadGraphifyStatus();
   } catch (err) {
     hint.textContent = err.message;
     hint.classList.add("error");
@@ -2103,6 +2187,8 @@ document.getElementById("onboarding-dialog").addEventListener("cancel", (event) 
 });
 document.getElementById("dashboard-apply-btn").addEventListener("click", loadDashboard);
 document.getElementById("notifications-refresh-btn").addEventListener("click", loadNotifications);
+document.getElementById("graphify-refresh-btn").addEventListener("click", loadGraphifyView);
+document.getElementById("graphify-query-btn").addEventListener("click", queryGraphify);
 
 (async function init() {
   applyLayout();
