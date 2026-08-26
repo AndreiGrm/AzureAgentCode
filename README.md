@@ -40,6 +40,7 @@ branch, PR o PBI.
 | `history.py`        | Storico persistente (SQLite) di run e decisioni, per la dashboard   |
 | `graphify_context.py` | Contesto Graphify opzionale per i piani, con fallback ai file      |
 | `dashboard_server.py` | Server locale della dashboard (FastAPI)                           |
+| `desktop_app.py`      | Finestra desktop nativa della dashboard                            |
 | `ingest_loop.py`    | Loop 1: ingest ticket -> branch -> implementazione -> PR             |
 | `review_loop.py`    | Loop 2: review commenti PR -> fix meccanico o blocco                |
 
@@ -150,7 +151,15 @@ senza invocare Claude: i problemi di lint/formattazione puro si risolvono
 con gli strumenti del progetto, a costo zero, lasciando a Claude solo cio'
 che richiede comprensione del codice o del commento.
 
-## Dashboard locale
+## Dashboard desktop
+
+L'applicazione Windows distribuita si trova in
+`dist/Azure DevOps Agent Dashboard/Azure DevOps Agent Dashboard.exe`. Avviala
+dal collegamento sul desktop: apre una finestra nativa, senza browser. Il file
+`.env`, lo storico SQLite e i log restano esterni all'exe, nella stessa cartella
+del pacchetto.
+
+### Avvio diagnostico nel browser
 
 ```bash
 python dashboard_server.py

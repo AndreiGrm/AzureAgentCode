@@ -13,6 +13,7 @@ from pathlib import Path
 from azure.devops.connection import Connection
 from dotenv import load_dotenv
 from msrest.authentication import BasicAuthentication
+from runtime_paths import data_dir
 
 # Carica le variabili da un file .env nella cartella corrente, se presente.
 # Non sovrascrive variabili già impostate nell'ambiente (es. da Task
@@ -96,7 +97,7 @@ SETTINGS_DEFAULTS = {
     "AGENT_PROVIDER": "claude_sdk",
 }
 
-ENV_PATH = Path(__file__).resolve().parent / ".env"
+ENV_PATH = data_dir() / ".env"
 
 
 def _mask_secret(value: str) -> str:

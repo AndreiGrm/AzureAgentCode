@@ -11,11 +11,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from runtime_paths import data_dir
 
-DB_PATH = Path(__file__).resolve().parent / "history.db"
+DB_PATH = data_dir() / "history.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -158,6 +160,43 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _event_count(path: Path) -> int:
+    if not path.is_file():
+        return 0
+
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+    except sqlite3.DatabaseError:
+        return 0
+    finally:
+        conn.close()
+
+
+def _migrate_legacy_history_if_empty() -> None:
+    """Importa lo storico della versione sorgente alla prima esecuzione dell'exe."""
+    if not getattr(sys, "frozen", False) or _event_count(DB_PATH):
+        return
+
+    legacy_path = data_dir().parent.parent / DB_PATH.name
+    if _event_count(legacy_path) == 0:
+        return
+
+    temporary_path = DB_PATH.with_suffix(".migration.db")
+    source = sqlite3.connect(legacy_path)
+    destination = sqlite3.connect(temporary_path)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+
+    try:
+        os.replace(temporary_path, DB_PATH)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 @contextmanager
 def _connect():
     conn = sqlite3.connect(DB_PATH, timeout=10)
@@ -172,6 +211,7 @@ def _connect():
 
 
 def init_db() -> None:
+    _migrate_legacy_history_if_empty()
     with _connect() as conn:
         conn.executescript(_SCHEMA)
 

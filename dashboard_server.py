@@ -36,10 +36,11 @@ import state
 from claude_runner import run_claude
 from config import ConfigError, get_connection, get_settings, load_config, update_settings, SETTINGS_SCHEMA
 from graphify_context import get_graphify_context
+from runtime_paths import data_dir, resource_dir
 
-WORKFLOW_DIR = Path(__file__).resolve().parent
-STATIC_DIR = WORKFLOW_DIR / "static"
-LOGS_DIR = WORKFLOW_DIR / "logs"
+WORKFLOW_DIR = data_dir()
+STATIC_DIR = resource_dir() / "static"
+LOGS_DIR = data_dir() / "logs"
 
 SCRIPTS = {
     "ingest": "ingest_loop.py",

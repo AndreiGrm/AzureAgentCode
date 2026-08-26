@@ -5,3 +5,7 @@ history.db
 history.db-wal
 history.db-shm
 logs/
+build/
+dist/
+dist-*/
+*.spec
