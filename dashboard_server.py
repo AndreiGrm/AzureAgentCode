@@ -26,6 +26,11 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from azure.devops.exceptions import (
+    AzureDevOpsAuthenticationError,
+    AzureDevOpsClientError,
+    AzureDevOpsServiceError,
+)
 from azure.devops.v7_1.git.models import GitPullRequest, GitPullRequestCompletionOptions, ResourceRef
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -114,6 +119,33 @@ async def _config_error_handler(_request: Request, exc: ConfigError) -> JSONResp
     dalla pagina Impostazioni), risponde con un 400 leggibile invece di far
     esplodere l'endpoint con un 500 generico."""
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(AzureDevOpsAuthenticationError)
+async def _azure_devops_auth_error_handler(_request: Request, exc: AzureDevOpsAuthenticationError) -> JSONResponse:
+    """Gestisce errori di autenticazione Azure DevOps: PAT scaduto, non valido o mancante."""
+    return JSONResponse(
+        status_code=401,
+        content={"detail": f"Errore di autenticazione Azure DevOps: {exc}. Verifica che il Personal Access Token sia valido e non scaduto."}
+    )
+
+
+@app.exception_handler(AzureDevOpsServiceError)
+async def _azure_devops_service_error_handler(_request: Request, exc: AzureDevOpsServiceError) -> JSONResponse:
+    """Gestisce errori dal servizio Azure DevOps (policy, permessi, regole del progetto)."""
+    return JSONResponse(
+        status_code=400,
+        content={"detail": f"Errore Azure DevOps: {exc}"}
+    )
+
+
+@app.exception_handler(AzureDevOpsClientError)
+async def _azure_devops_client_error_handler(_request: Request, exc: AzureDevOpsClientError) -> JSONResponse:
+    """Gestisce errori generici del client Azure DevOps (connessione, timeout, richieste malformate)."""
+    return JSONResponse(
+        status_code=502,
+        content={"detail": f"Errore di comunicazione con Azure DevOps: {exc}"}
+    )
 
 
 def _kill_process_tree(proc: subprocess.Popen) -> None:
@@ -344,7 +376,7 @@ def api_dashboard(
         str(completed_to) if completed_to else None,
     )
     if completion_action != "all":
-        allowed_actions = {"pr_completed", "closed"}
+        allowed_actions = {"pr_completed", "closed", "external_completed"}
         if completion_action not in allowed_actions:
             raise HTTPException(400, detail="Filtro stato completamento non valido")
         completed_items = [
@@ -611,13 +643,56 @@ def api_close_work_item(work_item_id: int) -> dict:
     riprendono anche se rientrasse per qualche motivo nella WIQL."""
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
-    state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
-    state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
+    
+    try:
+        state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
+        state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
+    except AzureDevOpsServiceError as exc:
+        if "does not exist" in str(exc) or "TF401232" in str(exc):
+            raise HTTPException(
+                404,
+                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi."
+            )
+        raise HTTPException(400, detail=f"Impossibile chiudere il work item: {exc}")
+    
     _log_manual_action(
         "closed", f"Work item #{work_item_id}: chiuso manualmente dalla dashboard",
         work_item_id=work_item_id, level="warning",
     )
     return {"work_item_id": work_item_id, "tags": sorted(state.get_tags(wit_client, work_item_id))}
+
+
+@app.delete("/api/tickets/{work_item_id}")
+def api_delete_work_item(work_item_id: int) -> dict:
+    """Sposta un work item nel cestino Azure Boards.
+
+    ``destroy`` resta falso per consentire il ripristino dal cestino Azure
+    Boards; non elimina cronologia e costi locali, che rimangono auditabili.
+    """
+    active_script = _active_ingest_or_review()
+    if active_script is not None:
+        raise HTTPException(
+            409,
+            detail=f"Non puoi eliminare un ticket mentre {active_script} e' in esecuzione",
+        )
+
+    cfg = load_config()
+    wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
+    try:
+        wit_client.delete_work_item(work_item_id, project=cfg.project, destroy=False)
+    except AzureDevOpsServiceError as exc:
+        if "does not exist" in str(exc) or "TF401232" in str(exc):
+            raise HTTPException(
+                404,
+                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi.",
+            ) from exc
+        raise HTTPException(400, detail=f"Impossibile eliminare il work item: {exc}") from exc
+
+    _log_manual_action(
+        "deleted", f"Work item #{work_item_id}: spostato nel cestino Azure Boards dalla dashboard",
+        work_item_id=work_item_id, level="warning",
+    )
+    return {"work_item_id": work_item_id, "deleted": True}
 
 
 @app.post("/api/reopen/{work_item_id}")
@@ -627,9 +702,19 @@ def api_reopen_work_item(work_item_id: int) -> dict:
     chiusura, cosi' ingest/review possono ricominciare a seguirlo."""
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
-    state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
-    state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
-    state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_ABANDONED)
+    
+    try:
+        state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
+        state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
+        state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_ABANDONED)
+    except AzureDevOpsServiceError as exc:
+        if "does not exist" in str(exc) or "TF401232" in str(exc):
+            raise HTTPException(
+                404,
+                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi."
+            )
+        raise HTTPException(400, detail=f"Impossibile riaprire il work item: {exc}")
+    
     _log_manual_action(
         "reopened", f"Work item #{work_item_id}: riaperto manualmente dalla dashboard",
         work_item_id=work_item_id,
@@ -759,17 +844,40 @@ def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
         title=f"#{work_item_id}: {title}",
         work_item_refs=[ResourceRef(id=str(work_item_id))],
     )
-    created = git_client.create_pull_request(pr_to_create, cfg.repo_id, project=cfg.project)
+    
+    try:
+        created = git_client.create_pull_request(pr_to_create, cfg.repo_id, project=cfg.project)
+    except AzureDevOpsAuthenticationError:
+        raise HTTPException(401, detail="Non sei autenticato su Azure DevOps. Verifica il Personal Access Token nelle impostazioni.")
+    except AzureDevOpsServiceError as exc:
+        raise HTTPException(400, detail=f"Impossibile creare la PR: {exc}")
+    
     if auto_complete:
-        created = git_client.update_pull_request(
-            GitPullRequest(
-                auto_complete_set_by=created.created_by,
-                completion_options=GitPullRequestCompletionOptions(),
-            ),
-            cfg.repo_id,
-            created.pull_request_id,
-            project=cfg.project,
-        )
+        try:
+            created = git_client.update_pull_request(
+                GitPullRequest(
+                    auto_complete_set_by=created.created_by,
+                    completion_options=GitPullRequestCompletionOptions(
+                        merge_strategy="squash",
+                        delete_source_branch=True,
+                    ),
+                ),
+                cfg.repo_id,
+                created.pull_request_id,
+                project=cfg.project,
+            )
+        except AzureDevOpsServiceError as exc:
+            # La PR e' stata creata ma l'autocomplete non e' stato impostato.
+            # Informiamo l'utente ma non blocchiamo: la PR esiste comunque.
+            logging.warning(
+                "PR #%s creata ma autocomplete non impostato: %s",
+                created.pull_request_id, exc
+            )
+            raise HTTPException(
+                400,
+                detail=f"PR creata (#{created.pull_request_id}) ma impossibile impostare auto-complete: {exc}. "
+                       "Puoi impostarlo manualmente dalla pagina della PR su Azure DevOps."
+            )
 
     state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_IMPLEMENTED)
     state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_ABANDONED)
@@ -799,6 +907,111 @@ def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
 
 class TextBody(BaseModel):
     text: str
+
+
+class WorkflowSettingsBody(BaseModel):
+    routing_mode: str
+    azure_communication: str
+
+
+_WORKFLOW_ROUTING_MODES = {
+    "copilot_then_claude",
+    "claude_only",
+    "copilot_only",
+}
+_AZURE_COMMUNICATION_MODES = {
+    "approval_required",
+    "automatic_pr",
+    "manual_only",
+}
+
+
+def _workflow_summary(settings: dict) -> str:
+    routing = {
+        "copilot_then_claude": "Copilot prova per primo; Claude subentra solo dopo un errore, un blocco dichiarato o verifiche fallite.",
+        "claude_only": "Claude riceve direttamente ogni attività AI.",
+        "copilot_only": "Copilot riceve le attività AI; non è previsto il passaggio automatico a Claude.",
+    }[settings["routing_mode"]]
+    azure = {
+        "approval_required": "Azure DevOps viene aggiornato automaticamente per tag e note; l'apertura della PR richiede la tua approvazione.",
+        "automatic_pr": "Azure DevOps viene aggiornato automaticamente e la PR viene aperta dopo le verifiche.",
+        "manual_only": "Nessuna comunicazione Azure DevOps automatica oltre alla lettura; tag, note e PR restano manuali.",
+    }[settings["azure_communication"]]
+    return f"{routing} {azure}"
+
+
+def _apply_workflow_chat_request(text: str, settings: dict) -> tuple[dict, str]:
+    normalized = text.lower()
+    routing_mode = settings["routing_mode"]
+    azure_communication = settings["azure_communication"]
+    changes: list[str] = []
+
+    if "claude" in normalized and any(term in normalized for term in ("solo", "sempre", "direttamente")):
+        routing_mode = "claude_only"
+        changes.append("Claude come agente unico")
+    elif "copilot" in normalized and "claude" in normalized and any(
+        term in normalized for term in ("prima", "fallback", "poi")
+    ):
+        routing_mode = "copilot_then_claude"
+        changes.append("Copilot prima, Claude come fallback")
+    elif "copilot" in normalized and any(term in normalized for term in ("solo", "unico")):
+        routing_mode = "copilot_only"
+        changes.append("Copilot come agente unico")
+
+    if any(term in normalized for term in ("approvazione", "approvare", "conferma")):
+        azure_communication = "approval_required"
+        changes.append("approvazione richiesta prima della PR")
+    elif any(term in normalized for term in ("pr automatica", "apri automaticamente", "aprire automaticamente")):
+        azure_communication = "automatic_pr"
+        changes.append("PR automatica dopo le verifiche")
+    elif any(term in normalized for term in ("azure manuale", "solo manuale", "non comunicare")):
+        azure_communication = "manual_only"
+        changes.append("comunicazioni Azure DevOps solo manuali")
+
+    updated = history.update_workflow_settings(routing_mode, azure_communication)
+    if changes:
+        return updated, f"Ho aggiornato il workflow: {', '.join(changes)}. {_workflow_summary(updated)}"
+    return updated, (
+        "Non ho modificato il workflow perché non ho riconosciuto una direttiva applicabile. "
+        "Puoi scrivere, ad esempio: “Copilot prima, Claude come fallback” oppure "
+        "“richiedi approvazione prima della PR”. Stato attuale: "
+        f"{_workflow_summary(updated)}"
+    )
+
+
+@app.get("/api/workflow")
+def api_get_workflow() -> dict:
+    settings = history.get_workflow_settings()
+    return {
+        "settings": settings,
+        "summary": _workflow_summary(settings),
+        "messages": history.get_workflow_chat_messages(),
+    }
+
+
+@app.put("/api/workflow")
+def api_update_workflow(body: WorkflowSettingsBody) -> dict:
+    if body.routing_mode not in _WORKFLOW_ROUTING_MODES:
+        raise HTTPException(400, detail="Modalità routing non valida")
+    if body.azure_communication not in _AZURE_COMMUNICATION_MODES:
+        raise HTTPException(400, detail="Modalità comunicazione Azure non valida")
+    settings = history.update_workflow_settings(body.routing_mode, body.azure_communication)
+    return {"settings": settings, "summary": _workflow_summary(settings)}
+
+
+@app.post("/api/workflow/chat")
+def api_workflow_chat(body: TextBody) -> dict:
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, detail="Il messaggio non può essere vuoto")
+    history.add_workflow_chat_message("user", text)
+    settings, response = _apply_workflow_chat_request(text, history.get_workflow_settings())
+    history.add_workflow_chat_message("assistant", response)
+    return {
+        "settings": settings,
+        "summary": _workflow_summary(settings),
+        "messages": history.get_workflow_chat_messages(),
+    }
 
 
 class ThreadBatchRequest(BaseModel):

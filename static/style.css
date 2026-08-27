@@ -88,6 +88,24 @@ body {
   display: none;
 }
 
+.action-feedback {
+  position: fixed;
+  z-index: 1000;
+  top: 62px;
+  right: 24px;
+  max-width: calc(100vw - 32px);
+  padding: 9px 13px;
+  border: 1px solid var(--ok);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.action-feedback.error { border-color: var(--err); }
+.action-feedback[hidden] { display: none; }
+
 .request-loader-spinner {
   width: 15px;
   height: 15px;
@@ -346,6 +364,12 @@ button:not(.nav-btn):disabled {
 
 .back-btn { margin-bottom: 12px; margin-right: 8px; }
 #btn-close-ticket { border-color: var(--err); color: var(--err); }
+.delete-ticket-btn {
+  margin-bottom: 12px;
+  border-color: var(--err) !important;
+  background: var(--err) !important;
+  color: white !important;
+}
 
 #view-tickets, #view-completed, #view-history, #view-dashboard, #view-notifications { padding: 0 var(--space-6) var(--space-6); }
 #view-tickets[hidden], #view-completed[hidden], #view-history[hidden], #view-dashboard[hidden], #view-notifications[hidden] { display: none; }
@@ -1098,6 +1122,97 @@ tr.level-warning td { color: var(--warn); }
   font: 12px Consolas, "Courier New", monospace;
 }
 
+#view-workflow {
+  padding: 0 24px 24px;
+  max-width: 1280px;
+}
+
+.workflow-header h2 {
+  margin-bottom: 6px;
+}
+
+.workflow-diagram {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 12px 0 22px;
+}
+
+.workflow-step {
+  flex: 1 0 180px;
+  min-height: 145px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.workflow-step.source { border-top: 3px solid #4f8cff; }
+.workflow-step.agent { border-top: 3px solid #36b37e; }
+.workflow-step.fallback { border-top: 3px solid #a371f7; }
+.workflow-step.validation { border-top: 3px solid #d29922; }
+.workflow-step.azure { border-top: 3px solid #25a7d9; }
+.workflow-step.azure.manual { opacity: .62; }
+.workflow-step[hidden] { display: none; }
+.workflow-step strong { display: block; margin: 7px 0; }
+.workflow-step p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.workflow-kind {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.workflow-arrow {
+  align-self: center;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+.workflow-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.workflow-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workflow-controls select, .workflow-chat textarea {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.workflow-chat-messages {
+  max-height: 260px;
+  overflow: auto;
+  margin: 12px 0;
+}
+
+.workflow-chat-message {
+  margin: 0 0 8px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.workflow-chat-message.assistant { border-left: 3px solid var(--accent); }
+.workflow-chat-message.user { border-left: 3px solid #36b37e; }
+.workflow-chat-message p { margin: 5px 0 0; white-space: pre-wrap; }
+
 @media (max-width: 720px) {
   #app-body {
     flex-direction: column;
@@ -1125,6 +1240,10 @@ tr.level-warning td { color: var(--warn); }
   }
 
   .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-controls {
     grid-template-columns: 1fr;
   }
 

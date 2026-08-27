@@ -68,7 +68,7 @@ class Config:
 SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
     ("ORG_URL", "URL organizzazione Azure DevOps", True, False),
     ("PROJECT", "Progetto", True, False),
-    ("TEAM", "Team", False, False),
+    ("TEAM", "Team", True, False),
     ("REPO_ID", "Repository (nome o GUID)", True, False),
     ("REPO_PATH", "Path locale del repository git", True, False),
     ("BASE_BRANCH", "Branch base", False, False),

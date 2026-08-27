@@ -147,6 +147,20 @@ CREATE TABLE IF NOT EXISTS ticket_chat_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_chat_messages_work_item
     ON ticket_chat_messages(work_item_id, id);
+
+CREATE TABLE IF NOT EXISTS workflow_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    routing_mode TEXT NOT NULL,
+    azure_communication TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 # Azioni che corrispondono a un run_claude() effettivamente "in corso" per un
@@ -218,6 +232,68 @@ def init_db() -> None:
     _migrate_legacy_history_if_empty()
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+
+
+_DEFAULT_WORKFLOW_SETTINGS = {
+    "routing_mode": "copilot_then_claude",
+    "azure_communication": "approval_required",
+}
+
+
+def get_workflow_settings() -> dict:
+    init_db()
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM workflow_settings WHERE id = 1").fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO workflow_settings (id, routing_mode, azure_communication, updated_at) "
+                "VALUES (1, ?, ?, ?)",
+                (
+                    _DEFAULT_WORKFLOW_SETTINGS["routing_mode"],
+                    _DEFAULT_WORKFLOW_SETTINGS["azure_communication"],
+                    _now(),
+                ),
+            )
+            return _DEFAULT_WORKFLOW_SETTINGS.copy()
+    return dict(row)
+
+
+def update_workflow_settings(routing_mode: str, azure_communication: str) -> dict:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO workflow_settings (id, routing_mode, azure_communication, updated_at)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                routing_mode = excluded.routing_mode,
+                azure_communication = excluded.azure_communication,
+                updated_at = excluded.updated_at
+            """,
+            (routing_mode, azure_communication, _now()),
+        )
+    return get_workflow_settings()
+
+
+def add_workflow_chat_message(role: str, content: str) -> None:
+    if role not in {"user", "assistant"}:
+        raise ValueError(f"Ruolo chat workflow non valido: {role}")
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO workflow_chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+            (role, content, _now()),
+        )
+
+
+def get_workflow_chat_messages(limit: int = 30) -> list[dict]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM workflow_chat_messages ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
 
 
 def start_run(script: str, pid: int | None = None) -> int:
@@ -309,11 +385,15 @@ def get_tickets(limit: int = 100) -> list[dict]:
             """
             SELECT e.* FROM events e
             WHERE e.work_item_id IS NOT NULL
-              AND e.action NOT IN ('comment_skipped', 'comment_restored', 'comment_resolved')
+                            AND e.action NOT IN ('comment_skipped', 'comment_restored', 'comment_resolved', 'deleted')
               AND e.id = (
                   SELECT MAX(id) FROM events e2
                   WHERE e2.work_item_id = e.work_item_id
-                    AND e2.action NOT IN ('comment_skipped', 'comment_restored', 'comment_resolved')
+                                        AND e2.action NOT IN ('comment_skipped', 'comment_restored', 'comment_resolved', 'deleted')
+                                        AND NOT EXISTS (
+                                            SELECT 1 FROM events deleted
+                                            WHERE deleted.work_item_id = e2.work_item_id AND deleted.action = 'deleted'
+                                        )
               )
             ORDER BY e.id DESC
             LIMIT ?
@@ -334,7 +414,7 @@ def get_completed_work_items(
     init_db()
     clauses = [
         "e.work_item_id IS NOT NULL",
-        "e.action IN ('pr_completed', 'closed')",
+        "e.action IN ('pr_completed', 'closed', 'external_completed')",
         "e.id = (SELECT MAX(e2.id) FROM events e2 WHERE e2.work_item_id = e.work_item_id)",
     ]
     params: list[str] = []

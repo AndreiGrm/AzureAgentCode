@@ -10,3 +10,4 @@ dist/
 dist-*/
 installer-output/
 *.spec
+!Azure DevOps Agent Dashboard Release.spec

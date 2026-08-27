@@ -50,10 +50,12 @@ const ACTION_LABELS = {
   comment_batch_commit_failed: "Commit correzioni PR non riuscito",
   ticket_chat_planned: "Piano dalla chat pronto",
   restart_requested: "Ripartenza da zero richiesta",
-  external_change: "Chiuso/rimosso su Azure Boards",
+  external_change: "Aggiornato su Azure Boards",
+  external_completed: "Completato su Azure Boards",
   pr_completed: "PR completata",
   pr_abandoned: "PR abbandonata",
   closed: "Chiuso manualmente",
+  deleted: "Eliminato",
   reopened: "Riaperto",
   error: "Errore",
 };
@@ -65,7 +67,7 @@ const PR_REVIEW_ACTIONS = [
   "comment_batch_planned", "comment_batch_applied", "comment_batch_failed",
   "comment_batch_committed", "comment_batch_commit_failed",
 ];
-const COMPLETED_ACTIONS = ["pr_completed", "pr_abandoned", "closed"];
+const COMPLETED_ACTIONS = ["pr_completed", "pr_abandoned", "closed", "external_completed"];
 const TICKET_FLOW = [
   { id: "loaded", label: "Caricati", description: "In attesa di essere analizzati" },
   { id: "plan", label: "Piano pronto", description: "Richiedono l'approvazione del piano" },
@@ -177,6 +179,26 @@ async function showError(message) {
 }
 
 let pendingRequests = 0;
+let actionFeedbackTimer = null;
+
+function showActionFeedback(message, isError = false) {
+  const feedback = document.getElementById("action-feedback");
+  feedback.textContent = message;
+  feedback.classList.toggle("error", isError);
+  feedback.hidden = false;
+  window.clearTimeout(actionFeedbackTimer);
+  actionFeedbackTimer = window.setTimeout(() => { feedback.hidden = true; }, 5000);
+}
+
+async function refreshAfterTicketMutation() {
+  await Promise.all([
+    refreshTickets(true),
+    refreshHistory(true),
+    refreshStatus(true),
+    currentNav === "dashboard" ? loadDashboard() : Promise.resolve(),
+    currentNav === "notifications" ? loadNotifications(true) : Promise.resolve(),
+  ]);
+}
 
 function setRequestLoading(isLoading, label) {
   const loader = document.getElementById("request-loader");
@@ -273,10 +295,12 @@ async function stopRun(script) {
   if (!await confirmAction(`Fermare il run di ${script} in corso?`, "Ferma")) return;
   try {
     await fetchJson(`/api/stop/${script}`, { method: "POST" });
+    showActionFeedback(`Run ${script} fermato. Stato aggiornato.`);
   } catch (err) {
+    showActionFeedback(`Impossibile fermare ${script}: ${err.message}`, true);
     await showError(`Impossibile fermare ${script}: ${err.message}`);
   }
-  await refreshStatus();
+  await refreshAfterTicketMutation();
 }
 
 async function blockWorkItem(workItemId) {
@@ -286,10 +310,12 @@ async function blockWorkItem(workItemId) {
   )) return;
   try {
     await fetchJson(`/api/block/${workItemId}`, { method: "POST" });
+    showActionFeedback(`Ticket #${workItemId} bloccato. Vista aggiornata.`);
   } catch (err) {
+    showActionFeedback(`Impossibile bloccare il ticket #${workItemId}: ${err.message}`, true);
     await showError(`Impossibile bloccare il ticket #${workItemId}: ${err.message}`);
   }
-  await refreshStatus();
+  await refreshAfterTicketMutation();
 }
 
 // --- Ticket ------------------------------------------------------------
@@ -617,6 +643,7 @@ function applyLayout() {
   document.getElementById("view-tickets").hidden = inDetail || currentNav !== "tickets";
   document.getElementById("view-completed").hidden = inDetail || currentNav !== "completed";
   document.getElementById("view-history").hidden = inDetail || currentNav !== "history";
+  document.getElementById("view-workflow").hidden = inDetail || currentNav !== "workflow";
   document.getElementById("view-dashboard").hidden = inDetail || currentNav !== "dashboard";
   document.getElementById("view-notifications").hidden = inDetail || currentNav !== "notifications";
   document.getElementById("view-settings").hidden = inDetail || currentNav !== "settings";
@@ -630,6 +657,104 @@ function showNav(view) {
   if (view === "settings") loadSettings();
   if (view === "dashboard") loadDashboard();
   if (view === "notifications") loadNotifications();
+  if (view === "workflow") loadWorkflow();
+}
+
+// --- Workflow ---------------------------------------------------------------
+
+function renderWorkflowChat(messages) {
+  const container = document.getElementById("workflow-chat-messages");
+  container.textContent = "";
+  if (messages.length === 0) {
+    container.textContent = "Nessuna modifica richiesta. Il workflow predefinito usa Copilot con Claude come fallback.";
+    return;
+  }
+  for (const message of messages) {
+    const item = document.createElement("article");
+    item.className = `workflow-chat-message ${message.role}`;
+    const author = document.createElement("strong");
+    author.textContent = message.role === "user" ? "Tu" : "Workflow";
+    const content = document.createElement("p");
+    content.textContent = message.content;
+    item.append(author, content);
+    container.appendChild(item);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderWorkflow(data) {
+  const settings = data.settings;
+  document.getElementById("workflow-summary").textContent = data.summary;
+  document.getElementById("workflow-routing").value = settings.routing_mode;
+  document.getElementById("workflow-azure").value = settings.azure_communication;
+  document.getElementById("workflow-copilot-step").hidden = settings.routing_mode === "claude_only";
+  document.getElementById("workflow-claude-step").hidden = settings.routing_mode === "copilot_only";
+  document.getElementById("workflow-pr-step").classList.toggle(
+    "manual",
+    settings.azure_communication === "manual_only"
+  );
+  renderWorkflowChat(data.messages || []);
+}
+
+async function loadWorkflow() {
+  const hint = document.getElementById("workflow-settings-hint");
+  try {
+    renderWorkflow(await fetchJson("/api/workflow"));
+    hint.textContent = "";
+    hint.classList.remove("error");
+  } catch (err) {
+    hint.textContent = `Impossibile caricare il workflow: ${err.message}`;
+    hint.classList.add("error");
+  }
+}
+
+async function saveWorkflow() {
+  const hint = document.getElementById("workflow-settings-hint");
+  const button = document.getElementById("workflow-save-btn");
+  button.disabled = true;
+  try {
+    const result = await fetchJson("/api/workflow", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routing_mode: document.getElementById("workflow-routing").value,
+        azure_communication: document.getElementById("workflow-azure").value,
+      }),
+    });
+    hint.textContent = "Workflow salvato.";
+    hint.classList.remove("error");
+    await loadWorkflow();
+  } catch (err) {
+    hint.textContent = `Salvataggio non riuscito: ${err.message}`;
+    hint.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function sendWorkflowChat() {
+  const input = document.getElementById("workflow-chat-input");
+  const hint = document.getElementById("workflow-chat-hint");
+  const button = document.getElementById("workflow-chat-send-btn");
+  const text = input.value.trim();
+  if (!text) return;
+  button.disabled = true;
+  hint.textContent = "Aggiornamento workflow...";
+  hint.classList.remove("error");
+  try {
+    renderWorkflow(await fetchJson("/api/workflow/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }));
+    input.value = "";
+    hint.textContent = "Workflow aggiornato.";
+  } catch (err) {
+    hint.textContent = `Aggiornamento non riuscito: ${err.message}`;
+    hint.classList.add("error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // --- Notifiche --------------------------------------------------------------
@@ -1203,8 +1328,11 @@ async function runQualityChecks() {
   try {
     const quality = await fetchJson(`/api/quality/${currentView.workItemId}`, { method: "POST" });
     renderQuality(quality);
+    showActionFeedback("Verifiche completate. Vista aggiornata.");
+    await refreshAfterTicketMutation();
   } catch (err) {
     report.textContent = `Verifiche non eseguibili: ${err.message}`;
+    showActionFeedback(`Verifiche non riuscite: ${err.message}`, true);
   } finally {
     qualityRunning = false;
     button.disabled = false;
@@ -1272,9 +1400,12 @@ async function sendTicketChatMessage() {
     input.value = "";
     renderTicketChat(result.messages);
     hint.textContent = "Piano pronto.";
+    showActionFeedback("Piano pronto. Vista aggiornata.");
+    await refreshAfterTicketMutation();
   } catch (err) {
     hint.textContent = `Invio non riuscito: ${err.message}`;
     hint.classList.add("error");
+    showActionFeedback(`Invio non riuscito: ${err.message}`, true);
   } finally {
     ticketChatSubmitting = false;
     input.disabled = false;
@@ -1305,10 +1436,12 @@ async function restartTicketFromScratch() {
       refreshHistory(true),
     ]);
     await loadNotifications(true);
+    showActionFeedback("Ticket azzerato: la nuova pianificazione è in corso.");
   } catch (err) {
     const message = `Impossibile ripartire da zero: ${err.message}`;
     hint.textContent = message;
     hint.classList.add("error");
+    showActionFeedback(message, true);
     await showError(message);
   } finally {
     button.disabled = false;
@@ -1472,10 +1605,12 @@ async function approvePlan() {
     await fetchJson(`/api/plan/${currentView.workItemId}/approve`, { method: "POST" });
     hint.textContent = "Piano approvato, implementazione in corso.";
     hint.classList.remove("error");
-    await Promise.all([refreshTickets(), refreshStatus()]);
+    showActionFeedback("Piano approvato: implementazione avviata.");
+    await refreshAfterTicketMutation();
   } catch (err) {
     hint.textContent = `Approvazione non riuscita: ${err.message}`;
     hint.classList.add("error");
+    showActionFeedback(`Approvazione non riuscita: ${err.message}`, true);
   }
 }
 
@@ -1541,9 +1676,40 @@ async function closeTicket() {
   }
   try {
     await fetchJson(`/api/close/${workItemId}`, { method: "POST" });
-    await refreshTickets();
+    showActionFeedback(`Ticket #${workItemId} chiuso e spostato in Completed.`);
+    await refreshAfterTicketMutation();
   } catch (err) {
+    showActionFeedback(`Chiusura non riuscita: ${err.message}`, true);
     await showError(`Impossibile chiudere il ticket #${workItemId}: ${err.message}`);
+  }
+}
+
+async function deleteTicket() {
+  const workItemId = currentView.workItemId;
+  const confirmed = await confirmAction(
+    `Eliminare il ticket #${workItemId}? Verrà spostato nel cestino di Azure Boards e non sarà più lavorato dall'agente.`,
+    "Elimina ticket"
+  );
+  if (!confirmed) return;
+
+  const button = document.getElementById("btn-delete-ticket");
+  button.disabled = true;
+  try {
+    await fetchJson(
+      `/api/tickets/${workItemId}`,
+      { method: "DELETE" },
+      { loadingLabel: "Eliminazione ticket..." }
+    );
+    ticketInfoCache.delete(String(workItemId));
+    showActionFeedback(`Ticket #${workItemId} spostato nel cestino Azure Boards.`);
+    await refreshAfterTicketMutation();
+    showListView();
+  } catch (err) {
+    const message = `Impossibile eliminare il ticket #${workItemId}: ${err.message}`;
+    showActionFeedback(message, true);
+    await showError(message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1557,10 +1723,12 @@ async function reopenTicket() {
     await fetchJson(`/api/reopen/${currentView.workItemId}`, { method: "POST" });
     hint.textContent = "Ticket riaperto.";
     hint.classList.remove("error");
-    await refreshTickets();
+    showActionFeedback("Ticket riaperto. Vista aggiornata.");
+    await refreshAfterTicketMutation();
   } catch (err) {
     hint.textContent = `Impossibile riaprire: ${err.message}`;
     hint.classList.add("error");
+    showActionFeedback(`Riapertura non riuscita: ${err.message}`, true);
   } finally {
     reopenSubmitting = false;
   }
@@ -2002,12 +2170,6 @@ async function commitPrCommentBatch() {
 
 async function createPrFromDetail(autoComplete = false) {
   const workItemId = currentView.workItemId;
-  if (!await confirmAction(
-    `Aprire la PR per il ticket #${workItemId}? Da qui in poi diventa visibile ai reviewer.${
-      autoComplete ? " L'auto-completamento verra' attivato quando Azure DevOps avra' ricevuto tutte le policy e approvazioni richieste." : ""
-    }`,
-    autoComplete ? "Apri PR con autocomplete" : "Apri PR"
-  )) return;
   try {
     const endpoint = autoComplete
       ? `/api/create-pr/${workItemId}/autocomplete`
@@ -2023,10 +2185,12 @@ async function createPrFromDetail(autoComplete = false) {
 async function triggerRun(script) {
   try {
     await fetchJson(`/api/run/${script}`, { method: "POST" });
+    showActionFeedback(`Run ${script} avviato. Stato aggiornato.`);
   } catch (err) {
+    showActionFeedback(`Impossibile avviare ${script}: ${err.message}`, true);
     await showError(`Impossibile avviare ${script}: ${err.message}`);
   }
-  await refreshStatus();
+  await refreshAfterTicketMutation();
 }
 
 async function tick() {
@@ -2076,6 +2240,7 @@ for (const button of document.querySelectorAll(".detail-tab")) {
 }
 document.getElementById("btn-back-to-list").addEventListener("click", showListView);
 document.getElementById("btn-close-ticket").addEventListener("click", closeTicket);
+document.getElementById("btn-delete-ticket").addEventListener("click", deleteTicket);
 document.getElementById("reopen-btn").addEventListener("click", reopenTicket);
 document.getElementById("plan-save-btn").addEventListener("click", savePlan);
 document.getElementById("plan-approve-btn").addEventListener("click", approvePlan);
@@ -2103,6 +2268,8 @@ document.getElementById("onboarding-dialog").addEventListener("cancel", (event) 
 });
 document.getElementById("dashboard-apply-btn").addEventListener("click", loadDashboard);
 document.getElementById("notifications-refresh-btn").addEventListener("click", loadNotifications);
+document.getElementById("workflow-save-btn").addEventListener("click", saveWorkflow);
+document.getElementById("workflow-chat-send-btn").addEventListener("click", sendWorkflowChat);
 
 (async function init() {
   applyLayout();

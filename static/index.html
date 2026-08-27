@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <title>Azure DevOps Agent — Dashboard</title>
-<link rel="stylesheet" href="/static/style.css?v=20260821-copilot-provider" />
+<link rel="stylesheet" href="/static/style.css?v=20260827-ticket-sync" />
 </head>
 <body>
 <div id="request-loader" class="request-loader" role="status" aria-live="polite" aria-busy="true" hidden>
   <span class="request-loader-spinner" aria-hidden="true"></span>
   <span id="request-loader-label">Caricamento...</span>
 </div>
+<div id="action-feedback" class="action-feedback" role="status" aria-live="polite" hidden></div>
 <dialog id="app-dialog" class="app-dialog" aria-labelledby="app-dialog-title" aria-describedby="app-dialog-message">
   <form method="dialog" class="app-dialog-content">
     <h2 id="app-dialog-title"></h2>
@@ -51,6 +52,7 @@
       <button class="nav-btn" data-view="completed">Completed</button>
       <button class="nav-btn" data-view="notifications">Notifiche <span id="notification-badge" hidden>0</span></button>
       <button class="nav-btn" data-view="history">Storico</button>
+      <button class="nav-btn" data-view="workflow">Workflow</button>
       <button class="nav-btn" data-view="settings">Impostazioni</button>
     </nav>
   </aside>
@@ -115,6 +117,77 @@
       </table>
     </section>
 
+    <section id="view-workflow">
+      <div class="workflow-header">
+        <div>
+          <h2>Workflow operativo</h2>
+          <p id="workflow-summary" class="hint">Caricamento workflow...</p>
+        </div>
+      </div>
+      <div class="workflow-diagram" aria-label="Flusso operativo ticket">
+        <article class="workflow-step source">
+          <span class="workflow-kind">Azure Boards</span>
+          <strong>Ticket assegnato</strong>
+          <p>Legge PBI, descrizione, criteri e stato.</p>
+        </article>
+        <span class="workflow-arrow">→</span>
+        <article class="workflow-step agent" id="workflow-copilot-step">
+          <span class="workflow-kind">Agente</span>
+          <strong>Copilot</strong>
+          <p>Analisi, piano e attività adatte al primo tentativo.</p>
+        </article>
+        <span class="workflow-arrow">→</span>
+        <article class="workflow-step fallback" id="workflow-claude-step">
+          <span class="workflow-kind">Fallback</span>
+          <strong>Claude</strong>
+          <p>Subentra per complessità, blocchi o verifiche fallite.</p>
+        </article>
+        <span class="workflow-arrow">→</span>
+        <article class="workflow-step validation">
+          <span class="workflow-kind">Controllo</span>
+          <strong>Verifiche</strong>
+          <p>Lint, test e code review prima della PR.</p>
+        </article>
+        <span class="workflow-arrow">→</span>
+        <article class="workflow-step azure" id="workflow-pr-step">
+          <span class="workflow-kind">Azure DevOps</span>
+          <strong>Tag, note e PR</strong>
+          <p>Aggiorna Boards e crea/gestisce la pull request.</p>
+        </article>
+      </div>
+      <section class="workflow-settings stage-box">
+        <h3>Decisioni attive</h3>
+        <div class="workflow-controls">
+          <label>Routing agenti
+            <select id="workflow-routing">
+              <option value="copilot_then_claude">Copilot prima, Claude fallback</option>
+              <option value="claude_only">Solo Claude</option>
+              <option value="copilot_only">Solo Copilot</option>
+            </select>
+          </label>
+          <label>Comunicazione Azure DevOps
+            <select id="workflow-azure">
+              <option value="approval_required">Tag/note automatici, PR con approvazione</option>
+              <option value="automatic_pr">PR automatica dopo verifiche</option>
+              <option value="manual_only">Solo lettura: comunicazioni manuali</option>
+            </select>
+          </label>
+          <button id="workflow-save-btn" class="run-btn">Salva workflow</button>
+        </div>
+        <p id="workflow-settings-hint" class="hint"></p>
+      </section>
+      <section class="workflow-chat stage-box">
+        <h3>Chat di configurazione</h3>
+        <p class="hint">Puoi modificare il flusso con frasi come: “Copilot prima, Claude come fallback” o “richiedi approvazione prima della PR”.</p>
+        <div id="workflow-chat-messages" class="workflow-chat-messages" aria-live="polite"></div>
+        <textarea id="workflow-chat-input" rows="3" placeholder="Descrivi come vuoi cambiare il workflow..."></textarea>
+        <div class="detail-actions">
+          <button id="workflow-chat-send-btn" class="run-btn">Aggiorna tramite chat</button>
+        </div>
+        <p id="workflow-chat-hint" class="hint"></p>
+      </section>
+    </section>
+
     <section id="view-dashboard">
       <div class="dashboard-header">
         <div>
@@ -136,6 +209,7 @@
               <option value="all">Tutti</option>
               <option value="pr_completed">PR completata</option>
               <option value="closed">Chiuso manualmente</option>
+              <option value="external_completed">Completato su Azure Boards</option>
             </select>
           </label>
           <label>
@@ -240,6 +314,7 @@
     <section id="ticket-detail-panel" hidden>
       <button id="btn-back-to-list" class="back-btn">← Torna alla lista</button>
       <button id="btn-close-ticket" class="back-btn">Chiudi ticket</button>
+      <button id="btn-delete-ticket" class="delete-ticket-btn">Elimina ticket</button>
       <h2 id="detail-heading"></h2>
       <div class="detail-tabs" role="tablist" aria-label="Sezioni del ticket">
         <button class="detail-tab active" data-detail-tab="details" role="tab" aria-selected="true">Dettagli</button>
@@ -357,6 +432,6 @@
   </main>
 </div>
 
-<script src="/static/app.js?v=20260821-copilot-provider"></script>
+<script src="/static/app.js?v=20260827-ticket-sync"></script>
 </body>
 </html>

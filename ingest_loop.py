@@ -500,12 +500,11 @@ def implement_work_item(
     )
 
 
-TERMINAL_ADO_STATES = {"Done", "Closed", "Removed"}
-
 # Azioni che significano "non e' compito di ingest_loop seguirlo oltre":
 # pr_opened e' territorio di review_loop.py (che ha gia' un suo filtro sugli
 # stati terminali nella WIQL); blocked e' gia' segnalato, non serve rifarlo.
-_RECONCILE_SKIP_ACTIONS = {"pr_opened", "blocked"}
+_TERMINAL_ADO_STATES = {"done", "closed", "removed", "completed", "chiuso", "completato"}
+_RECONCILE_SKIP_ACTIONS = {"pr_opened", "blocked", "external_change", "external_completed"}
 
 
 def reconcile_stale_work_items(cfg: Config, wit_client, run_id: int, fresh_ids: set[int]) -> None:
@@ -513,10 +512,10 @@ def reconcile_stale_work_items(cfg: Config, wit_client, run_id: int, fresh_ids: 
     implementazione, in verifica, fix richiesto...) vengono normalmente
     ricontrollati ad ogni run SOLO se rientrano ancora nella WIQL
     (Committed/In Progress, assegnati a me, iterazione corrente). Se nel
-    frattempo qualcuno chiude/rimuove il work item direttamente su Azure
-    Boards, esce dalla query e la dashboard resterebbe bloccata per sempre
-    sull'ultimo stato conosciuto, senza saperlo: qui si ricontrollano
-    esplicitamente quelli USCITI dalla query per accorgersene."""
+    frattempo qualcuno li sposta o li rimuove direttamente su Azure Boards,
+    escono dalla query e la dashboard resterebbe bloccata sull'ultimo stato
+    conosciuto: qui si ricontrollano esplicitamente quelli USCITI dalla
+    query per aggiornare lo stato locale."""
     for ticket in history.get_tickets(limit=500):
         work_item_id = ticket["work_item_id"]
         if work_item_id in fresh_ids or ticket["action"] in _RECONCILE_SKIP_ACTIONS:
@@ -528,17 +527,19 @@ def reconcile_stale_work_items(cfg: Config, wit_client, run_id: int, fresh_ids: 
         except Exception:
             ado_state = None  # non piu' leggibile: probabilmente rimosso
 
-        if ado_state is not None and ado_state not in TERMINAL_ADO_STATES:
-            continue  # ancora vivo su Azure Boards, solo fuori dalla WIQL per altri motivi (es. iterazione)
-
-        reason = f"stato '{ado_state}'" if ado_state else "non piu' leggibile (probabilmente rimosso)"
+        normalized_state = str(ado_state or "").strip().casefold()
+        completed_externally = normalized_state in _TERMINAL_ADO_STATES
+        action = "external_completed" if completed_externally else "external_change"
+        reason = f"spostato allo stato '{ado_state}'" if ado_state else "non piu' leggibile (probabilmente rimosso)"
         logger.info("Work item #%s: %s su Azure Boards, lo segno come non piu' seguito", work_item_id, reason)
         try:
             state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
+            if completed_externally:
+                state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
         except Exception:
             logger.warning("Work item #%s: impossibile aggiornare i tag (forse davvero rimosso), procedo comunque", work_item_id)
         history.log_event(
-            run_id, "external_change",
+            run_id, action,
             f"Work item #{work_item_id}: {reason} su Azure Boards, ingest_loop non lo segue piu'",
             level="warning", work_item_id=work_item_id,
         )
