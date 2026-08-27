@@ -1,5 +1,5 @@
 #define AppName "Azure DevOps Agent Dashboard"
-#define AppVersion "1.0.1"
+#define AppVersion "1.0.2"
 #define AppPublisher "Azure DevOps Agent Dashboard"
 #define AppExeName "Azure DevOps Agent Dashboard.exe"
 
@@ -21,7 +21,7 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\{#AppExeName}
 
 [Languages]
-Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional tasks:"; Flags: unchecked
