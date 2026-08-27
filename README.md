@@ -1,257 +1,152 @@
-# Orchestratore Azure DevOps + agenti di coding
+# Azure DevOps Agent Dashboard
 
-Due script Python che orchestrano Azure DevOps (via SDK ufficiale `azure-devops`)
-e delegano l'implementazione dei ticket e la correzione delle PR a un agente
-configurabile. Claude Code via `claude-agent-sdk` resta il provider predefinito.
+Applicazione desktop locale per gestire ticket Azure DevOps con workflow
+controllato: legge PBI assegnati, crea branch, pianifica, implementa, verifica
+e gestisce pull request. La dashboard mostra stato, storico, costo/token,
+notifiche e mappa interattiva di tutte le azioni.
 
-- `ingest_loop.py`: prende i ticket assegnati nell'iterazione corrente, scompone
-  le Epic in PBI figli, crea un branch per ogni PBI/Task e chiede a Claude Code
-  di implementarlo, commitare, pushare e aprire la PR.
-- `review_loop.py`: guarda le PR aperte dal bot, legge i thread di commenti non
-  risolti e chiede a Claude Code di classificare ogni commento nuovo: se e' un
-  fix meccanico lo applica e risponde al thread; se richiede giudizio umano,
-  risponde spiegandolo, blocca il ticket e si ferma.
+La configurazione operativa avviene dalla pagina **Settings** della dashboard.
+Credenziali e impostazioni restano nel profilo Windows dell'utente; non serve
+creare o modificare file `.env` manualmente.
 
-I nuovi branch seguono la convenzione `feature/<id_pbi>__<titolo_in_snake_case>`;
-per i work item Azure DevOps di tipo `Bug` usano invece il prefisso `bugfix/`.
+## Come funziona oggi
 
-Prima di creare una PR dalla dashboard, esegui le **verifiche tecniche**: la
-dashboard rileva automaticamente gli script dichiarati nel repository
-(`test`, `lint`, `type-check` e `build`, privilegiando le varianti `:affected`)
-e li esegue senza usare token IA. La creazione della PR, normale o con
-auto-completamento Azure DevOps, rimane bloccata finché le verifiche del commit
-corrente non sono superate.
+### 1. Ticket e Azure DevOps: zero IA
 
-Lo stato (branch creato, PR aperta, bloccato, epic scomposta) vive interamente
-su Azure Boards come tag custom sul work item (`agent:branch-created`,
-`agent:pr-open`, `agent:blocked`, `agent:decomposed`), gestiti da `state.py`.
-Questo rende i due loop idempotenti tra run diversi: rilanciarli non duplica
-branch, PR o PBI.
+Quando viene eseguito Ingest, applicazione:
 
-## File
+1. legge ticket assegnati nell'iterazione corrente tramite Azure DevOps SDK;
+2. mostra PBI/Task nella pagina **Ticket**;
+3. mantiene stato tramite tag Azure Boards (`agent:plan-ready`,
+   `agent:implemented`, `agent:blocked`, ecc.);
+4. crea o riusa branch locali `feature/<id>__<titolo>` oppure
+   `bugfix/<id>__<titolo>`;
+5. salva eventi, piani, notifiche e qualità in SQLite locale.
 
-| File               | Ruolo                                                              |
-|--------------------|---------------------------------------------------------------------|
-| `config.py`         | Legge la configurazione dall'ambiente e crea la connessione ADO    |
-| `state.py`          | Tag custom sui work item (stato idempotente)                       |
-| `claude_runner.py`  | Runner per Claude SDK o un agente CLI configurabile                 |
-| `retry.py`          | Singolo retry automatico per le chiamate API fallite                |
-| `autofix.py`        | Autofix deterministico (prettier + lint --fix), senza Claude         |
-| `history.py`        | Storico persistente (SQLite) di run e decisioni, per la dashboard   |
-| `graphify_context.py` | Contesto Graphify opzionale per i piani, con fallback ai file      |
-| `dashboard_server.py` | Server locale della dashboard (FastAPI)                           |
-| `desktop_app.py`      | Finestra desktop nativa della dashboard                            |
-| `ingest_loop.py`    | Loop 1: ingest ticket -> branch -> implementazione -> PR             |
-| `review_loop.py`    | Loop 2: review commenti PR -> fix meccanico o blocco                |
+Queste fasi usano Azure DevOps SDK, Git e SQLite. Nessun modello IA, nessun
+token.
 
-## Requisiti
+### 2. Analisi: Copilot + Headroom + Graphify
 
-- Python 3.10+
-- Un repository git locale del progetto Azure DevOps, gia' clonato, il cui
-  path va indicato in `REPO_PATH` (i due script operano su quella working
-  copy: creano branch, fanno checkout, e Claude Code vi legge/scrive file).
-- [Azure CLI](https://learn.microsoft.com/cli/azure/) con l'estensione
-  `azure-devops` installata (`az extension add --name azure-devops`), usata
-  da Claude Code per `az repos pr create`. Quando ingest/review vengono
-  avviati dalla dashboard, l'autenticazione e' automatica: `AZURE_DEVOPS_PAT`
-  viene passato ad az cli anche come `AZURE_DEVOPS_EXT_PAT`, senza bisogno di
-  un `az devops login` separato. Serve solo se si lanciano gli script a mano
-  fuori dalla dashboard (es. da crontab/Task Scheduler) con un ambiente che
-  non include gia' `AZURE_DEVOPS_PAT`.
-- Claude Code CLI installato e autenticato (richiesto da `claude-agent-sdk`
-  per eseguire gli agenti).
+Con provider **Automatic: Copilot analysis / Claude execution**:
 
-```bash
+- Copilot prepara piani read-only, scompone Epic e pianifica correzioni PR;
+- Headroom instrada Copilot tramite proxy e riduce contesto;
+- Graphify interroga `graphify-out/graph.json` prima delle ricerche estese;
+- se Graphify non è disponibile, Copilot usa Read, Grep e Glob.
+
+Graphify viene usato solo nella fase di analisi. Dopo piano approvato, non
+viene interrogato di nuovo inutilmente.
+
+### 3. Implementazione: Claude
+
+Claude resta provider per attività che modificano repository:
+
+- implementazione ticket;
+- fix richiesti dopo review;
+- classificazione e applicazione commenti PR;
+- commit, push e synthetic review.
+
+Usa piano approvato, file repository e tool consentiti. Risposte naturali sono
+richieste in stile Caveman Ultra: concise, ma con decisioni, rischi, file e
+verifiche. Output macchina, come JSON e marker di stato, restano invariati.
+
+### 4. Qualità e pull request: zero IA
+
+Dopo implementazione:
+
+1. vengono eseguiti formatter e lint deterministici;
+2. dashboard rileva ed esegue script repository: test, lint, type-check,
+   build, privilegiando comandi `:affected`;
+3. PR viene bloccata finché verifiche del commit corrente non passano;
+4. Azure DevOps SDK crea PR o abilita auto-complete solo secondo policy scelta.
+
+### Mappa Workflow
+
+Pagina **Workflow** contiene:
+
+- pipeline sintetica con frecce colorate: strumenti deterministici, Copilot +
+  Headroom + Graphify, contesto già approvato, Claude;
+- mappa zoomabile/pannabile con ogni azione applicativa;
+- riga `Uses:` su ogni card: mostra strumenti reali coinvolti;
+- dettaglio e feedback persistente per ogni nodo.
+
+## Prima configurazione
+
+Apri applicazione, vai su **Settings**, completa:
+
+- organizzazione, progetto, team e repository Azure DevOps;
+- path repository Git locale;
+- branch base;
+- PAT Azure DevOps;
+- provider agente e modello.
+
+Configurazione consigliata:
+
+- **Agent provider:** `Automatic: Copilot analysis / Claude execution`
+- **Optimize agent context with Headroom:** `Enabled`
+
+Servono:
+
+- Git;
+- Python 3.10+;
+- repository target già clonato;
+- Azure DevOps PAT con permessi Work Items e Code read/write;
+- GitHub Copilot CLI autenticato;
+- Claude Code autenticato per fasi di scrittura;
+- Headroom proxy attivo per misurare/comprimere traffico Copilot;
+- Graphify e un grafo esistente, opzionali ma consigliati.
+
+## Avvio sviluppo
+
+Da repository applicativo:
+
+```powershell
 pip install -r requirements.txt
+python desktop_app.py
 ```
 
-## Variabili d'ambiente
+App apre finestra desktop e dashboard locale su `http://127.0.0.1:8765`.
 
-Tutte tranne `TEAM` sono obbligatorie: se ne manca una lo script si
-interrompe subito con un errore, invece di indovinare un default.
+Per debug browser:
 
-| Variabile           | Descrizione                                                        |
-|----------------------|---------------------------------------------------------------------|
-| `ORG_URL`            | URL dell'organizzazione, es. `https://dev.azure.com/mia-org` (senza il progetto) |
-| `PROJECT`            | Nome del progetto Azure DevOps                                     |
-| `TEAM`               | *(opzionale)* Nome del team. Necessario se il progetto ha piu' team: `@CurrentIteration` nella WIQL si risolve sull'iterazione corrente di UN team, non del progetto — senza `TEAM` viene usato il team di default, che spesso non e' quello giusto |
-| `REPO_ID`            | Nome (o GUID) della repository Git                                 |
-| `AZURE_DEVOPS_PAT`   | Personal Access Token con permessi Work Items (Read & Write) e Code (Read & Write) |
-| `REPO_PATH`          | Path locale del repository git clonato                             |
-| `BASE_BRANCH`        | *(opzionale, default `main`)* Branch da cui creare i feature branch e verso cui aprire le PR. Va impostato a `develop` (o altro) se il repo non usa `main` come branch di default |
-| `AGENT_PROVIDER`     | *(opzionale, default `claude_sdk`)* `claude_sdk` per Claude Code oppure `command` per un agente CLI esterno |
-| `AGENT_MODEL`        | *(opzionale)* Modello predefinito da usare con l'agente selezionato |
-| `AGENT_COMMAND`      | Obbligatorio con `AGENT_PROVIDER=command`; comando che legge il prompt da standard input |
-| `AGENT_MAX_OUTPUT_TOKENS` | *(opzionale)* Limite positivo per i token di output di un run; è passato all'agente CLI come variabile d'ambiente e diventa un vincolo esplicito per Claude |
-| `AGENT_TOKEN_BUDGET` | *(opzionale)* Budget positivo totale: impedisce nuovi run quando i token registrati lo raggiungono |
-
-### Agenti e budget token
-
-Le stesse opzioni sono disponibili nella pagina **Impostazioni** della
-dashboard e vengono applicate senza riavvio ai run successivi. Per un agente
-CLI esterno impostare `AGENT_PROVIDER=command` e un comando non interattivo
-che riceva il prompt su standard input. Il runner esporta inoltre
-`AGENT_MODEL`, `AGENT_MAX_OUTPUT_TOKENS` e `AGENT_ALLOWED_TOOLS`, così il
-comando wrapper può passarli al proprio provider.
-
-Il budget e il consumo sono mostrati nelle impostazioni. Claude SDK restituisce
-le metriche token effettive e quindi alimenta il budget; un comando CLI generico
-deve applicare `AGENT_MAX_OUTPUT_TOKENS` e non può fornire metriche token al
-runner senza un wrapper che le esponga.
-
-### Opzione A — file `.env`
-
-`config.py` carica automaticamente un file `.env` nella cartella corrente
-(via `python-dotenv`), senza sovrascrivere variabili già impostate
-nell'ambiente. E' presente un `.env` con placeholder da compilare:
-
-```
-ORG_URL=https://dev.azure.com/tua-org
-PROJECT=TuoProgetto
-REPO_ID=nome-o-guid-repo
-AZURE_DEVOPS_PAT=inserisci-qui-il-tuo-pat
-REPO_PATH=C:\path\to\repo-locale
+```powershell
+python dashboard_server.py
 ```
 
-Il file `.env` e' incluso in `.gitignore`: non va mai committato, contiene
-il PAT in chiaro.
+Per avviare singoli loop dopo configurazione dashboard:
 
-### Opzione B — variabili d'ambiente della shell
-
-```bash
-export ORG_URL="https://dev.azure.com/mia-org"
-export PROJECT="MioProgetto"
-export REPO_ID="mio-repo"
-export AZURE_DEVOPS_PAT="********"
-export REPO_PATH="/home/utente/progetti/mio-repo"
-```
-
-In entrambi i casi: non committare mai il PAT e non scriverlo dentro
-`config.py` o altri file tracciati dal repository.
-
-## Esecuzione manuale
-
-```bash
+```powershell
 python ingest_loop.py
 python review_loop.py
 ```
 
-Entrambi gli script loggano su stdout ogni decisione presa (ticket, branch,
-esito) e non si interrompono se un singolo ticket va in errore: lo loggano
-e passano al successivo. Lo stesso storico viene anche scritto in
-`history.db` (SQLite locale), leggibile dalla dashboard (sotto) anche a
-posteriori.
+Non eseguire Ingest e Review contemporaneamente sulla stessa copia repository:
+condividono working tree Git.
 
-### Autofix deterministico
+## Struttura
 
-Prima che Claude Code tocchi codice per un fix di review, e dopo che ha
-finito di implementare un ticket, entrambi gli script lanciano `prettier
---write` e `nx affected:lint --fix` (via `autofix.py`) sul branch corrente,
-senza invocare Claude: i problemi di lint/formattazione puro si risolvono
-con gli strumenti del progetto, a costo zero, lasciando a Claude solo cio'
-che richiede comprensione del codice o del commento.
+| File | Ruolo |
+|---|---|
+| `desktop_app.py` | Finestra desktop e server locale |
+| `dashboard_server.py` | API FastAPI dashboard |
+| `static/` | Interfaccia dashboard e mappa workflow |
+| `ingest_loop.py` | Ticket, piano, branch, implementazione |
+| `review_loop.py` | Commenti PR, review e fix |
+| `claude_runner.py` | Routing Claude, Copilot e Headroom |
+| `workflow_context.py` | Contesto Graphify e output Caveman Ultra |
+| `graphify_context.py` | Query Graphify con fallback esplicito |
+| `autofix.py` | Formatter/lint deterministici |
+| `quality_checks.py` | Rilevamento/esecuzione verifiche repository |
+| `history.py` | SQLite: run, eventi, qualità, feedback |
+| `state.py` | Tag e stato Azure Boards |
+| `config.py` | Configurazione locale dashboard |
 
-## Dashboard desktop
+## Sicurezza operativa
 
-Per distribuire l'app ai colleghi, allega a una GitHub Release il file
-`installer-output/Azure-DevOps-Agent-Dashboard-Setup-1.0.0.exe`. L'installer
-crea la voce nel menu Start e, se selezionato, il collegamento sul desktop.
-
-Al primo avvio compare una procedura guidata che richiede configurazione Azure
-DevOps e agente. Non e' necessario creare o modificare manualmente `.env`: le
-impostazioni sono salvate localmente nel profilo Windows dell'utente, insieme
-allo storico e ai log, in `%LOCALAPPDATA%\Azure DevOps Agent Dashboard`.
-
-Nella pagina **Impostazioni** il pulsante **Controlla aggiornamenti** confronta
-la versione installata con l'ultima GitHub Release. Dopo aver pubblicato una
-release, il pulsante **Apri download** porta alla pagina da cui installare la
-nuova versione.
-
-Quando l'app desktop installata trova un nuovo `Setup.exe`, il pulsante
-**Scarica e installa** scarica l'installer direttamente dalla Release, verifica
-l'hash SHA-256 fornito da GitHub, chiude l'app e avvia l'installazione. I dati
-in `%LOCALAPPDATA%\Azure DevOps Agent Dashboard` non vengono rimossi.
-
-### Publishing a desktop release
-
-GitHub Actions builds and publishes a desktop release automatically whenever a
-version tag is pushed. For example, to publish version `1.0.3`:
-
-```powershell
-git tag v1.0.3
-git push origin v1.0.3
-```
-
-The **Publish desktop release** workflow runs on a Windows runner, builds the
-installer, and creates the GitHub Release with the `Setup.exe` attached. Use
-only `vX.Y.Z` tags. The same workflow can also be started manually from the
-Actions page by entering a version number.
-
-### Avvio diagnostico nel browser
-
-```bash
-python dashboard_server.py
-```
-
-Apri `http://127.0.0.1:8765` nel browser. Mostra: stato corrente di ingest
-e review (ticket, step, aggiornato ogni 2s), storico persistente delle
-decisioni con motivazione (perche' un fix e' meccanico, perche' un ticket e'
-bloccato), e due bottoni per avviare i due script senza usare il terminale.
-
-Il server e' solo locale (`127.0.0.1`), non pensato per essere condiviso.
-Il lock che impedisce di far girare ingest e review insieme (condividono lo
-stesso `REPO_PATH`) e' gestito in memoria dal server: vale solo per i run
-avviati dai suoi bottoni, non per lanci manuali da un altro terminale mentre
-la dashboard e' aperta — evita di farli in contemporanea.
-
-### Correzione commenti PR dalla dashboard
-
-In **Review PR → Leggi commenti** puoi selezionare piu' thread e creare un
-piano unico. La correzione richiede due approvazioni esplicite:
-
-1. **Approva piano e applica modifiche** modifica solo la working copy, senza
-   commit o push.
-2. Dopo aver controllato le modifiche, **Approva commit e push** esegue test
-   mirati, crea un unico commit e pubblica il branch.
-
-Solo al termine del secondo passaggio riuscito l'agente risponde ai thread
-selezionati e li marca come risolti su Azure DevOps.
-
-### PR abbandonate e chat posteriore
-
-Quando il loop rileva una PR Azure DevOps in stato `abandoned`, rimuove
-`agent:pr-open`, aggiunge `agent:completed` e `agent:abandoned`, e il ticket
-compare nella sezione Completed. Dal dettaglio di ogni ticket e' disponibile
-la **Chat sul ticket**: ogni richiesta viene salvata e l'agente prepara subito
-un piano in sola lettura. La chat non modifica file, non crea commit e non fa
-push.
-
-Se PR e branch sono stati eliminati, usa **Riparti da zero** nel pannello chat:
-con conferma esplicita rimuove i tag del ciclo precedente, elimina il branch
-locale del ticket e avvia ingest per generare un nuovo piano.
-
-### Contesto Graphify nei piani
-
-Prima di generare un piano dalla chat, dalla correzione batch di commenti PR o
-da Ingest, il sistema prova a interrogare Graphify sul repository. Usa solo un
-grafo esistente (`graphify-out/graph.json`) e il comando `graphify query`, senza
-generare o aggiornare il grafo. Se Graphify o il grafo non sono disponibili, il
-piano prosegue automaticamente con `Read`, `Grep` e `Glob`.
-
-## Esecuzione schedulata (crontab)
-
-```cron
-# ingest: ogni ora
-0 * * * * cd /path/to/orchestrator && ORG_URL=... PROJECT=... REPO_ID=... AZURE_DEVOPS_PAT=... REPO_PATH=... /usr/bin/python3 ingest_loop.py >> /var/log/ado-agent/ingest.log 2>&1
-
-# review: ogni 15 minuti
-*/15 * * * * cd /path/to/orchestrator && ORG_URL=... PROJECT=... REPO_ID=... AZURE_DEVOPS_PAT=... REPO_PATH=... /usr/bin/python3 review_loop.py >> /var/log/ado-agent/review.log 2>&1
-```
-
-In pratica e' preferibile impostare le variabili d'ambiente in un file
-caricato dalla shell di cron (es. `. /path/to/env.sh &&`) piuttosto che
-scriverle inline nella riga di crontab, per non esporre il PAT in `crontab -l`.
-
-Su Windows si puo' ottenere lo stesso comportamento con due attivita' di Task
-Scheduler (`schtasks`) che eseguono `python ingest_loop.py` / `python review_loop.py`
-con la stessa periodicita'.
+- PAT non viene restituito in chiaro alla UI.
+- Dashboard ascolta solo su `127.0.0.1`.
+- Nessuna PR prima delle verifiche tecniche richieste.
+- Piano richiede approvazione prima dell'implementazione.
+- Batch fix PR richiede approvazione prima di commit/push.
+- Headroom e Graphify non sostituiscono verifica dei file sorgente.

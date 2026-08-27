@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>Azure DevOps Agent — Dashboard</title>
-<link rel="stylesheet" href="/static/style.css?v=20260827-ticket-sync" />
+<link rel="stylesheet" href="/static/style.css?v=20260827-workflow-tool-layout" />
 </head>
 <body>
 <div id="request-loader" class="request-loader" role="status" aria-live="polite" aria-busy="true" hidden>
@@ -123,6 +123,25 @@
           <h2>Operational workflow</h2>
           <p id="workflow-summary" class="hint">Loading workflow...</p>
         </div>
+        <section class="workflow-route-map" aria-label="AI and deterministic workflow routes">
+          <div class="workflow-route">
+            <article><span>1</span><strong>Load PBI</strong><small>Azure SDK</small></article>
+            <div class="workflow-route-arrow deterministic">Only code · no AI · no tokens</div>
+            <article><span>2</span><strong>Build context</strong><small>Graphify</small></article>
+            <div class="workflow-route-arrow copilot-graphify">Copilot + Headroom + Graphify</div>
+            <article><span>3</span><strong>Plan</strong><small>Copilot</small></article>
+            <div class="workflow-route-arrow copilot">Approved plan · no new Graphify query</div>
+            <article><span>4</span><strong>Implement</strong><small>Claude</small></article>
+            <div class="workflow-route-arrow deterministic">Checks: only code · no AI · no tokens</div>
+            <article><span>5</span><strong>Validate &amp; PR</strong><small>Tools + Azure SDK</small></article>
+          </div>
+          <div class="workflow-route-legend">
+            <span class="deterministic">Gray: deterministic tools / Azure SDK</span>
+            <span class="copilot-graphify">Blue: Copilot + Headroom + Graphify</span>
+            <span class="copilot">Purple: saved context, no new Graphify</span>
+            <span class="claude">Violet: Claude code execution</span>
+          </div>
+        </section>
       </div>
       <div class="workflow-diagram" aria-label="Ticket workflow">
         <article class="workflow-step source">
@@ -155,6 +174,34 @@
           <p>Updates Boards and creates/manages the pull request.</p>
         </article>
       </div>
+      <section class="workflow-map-panel stage-box">
+        <div class="workflow-map-heading">
+          <div>
+            <h3>Complete action map</h3>
+            <p class="hint">Scroll to zoom, drag to pan, then select any action for its details and behavior feedback.</p>
+          </div>
+          <div class="workflow-map-controls">
+            <button id="workflow-map-zoom-out" type="button" aria-label="Zoom out">−</button>
+            <button id="workflow-map-reset" type="button">Reset</button>
+            <button id="workflow-map-zoom-in" type="button" aria-label="Zoom in">+</button>
+          </div>
+        </div>
+        <div id="workflow-map-viewport" class="workflow-map-viewport" tabindex="0" aria-label="Interactive application action map">
+          <div id="workflow-map-canvas" class="workflow-map-canvas"></div>
+        </div>
+        <div id="workflow-map-detail" class="workflow-map-detail" aria-live="polite">
+          <strong>Select an action on the map</strong>
+          <p>Its behavior and available feedback will appear here.</p>
+        </div>
+        <form id="workflow-feedback-form" class="workflow-feedback-form">
+          <label for="workflow-feedback-input">Feedback for the selected action</label>
+          <textarea id="workflow-feedback-input" rows="3" placeholder="Tell the agent how it should behave at this point..." disabled></textarea>
+          <div class="detail-actions">
+            <button id="workflow-feedback-send-btn" class="run-btn" type="submit" disabled>Save feedback</button>
+          </div>
+          <p id="workflow-feedback-hint" class="hint"></p>
+        </form>
+      </section>
       <section class="workflow-settings stage-box">
         <h3>Active decisions</h3>
         <div class="workflow-controls">

@@ -426,10 +426,10 @@ def api_update_settings(body: SettingsUpdate) -> list[dict]:
             raise HTTPException(400, detail=f"Field '{key}' is required")
         if key in {"AGENT_MAX_OUTPUT_TOKENS", "AGENT_TOKEN_BUDGET"}:
             _optional_positive_int(value, key)
-        if key == "AGENT_PROVIDER" and value not in {"claude_sdk", "command", "copilot_cli"}:
+        if key == "AGENT_PROVIDER" and value not in {"claude_sdk", "auto", "command", "copilot_cli"}:
             raise HTTPException(
                 400,
-                detail="AGENT_PROVIDER must be 'claude_sdk', 'command', or 'copilot_cli'",
+                detail="AGENT_PROVIDER must be 'claude_sdk', 'auto', 'command', or 'copilot_cli'",
             )
         updates[key] = value
 
@@ -997,6 +997,11 @@ class WorkflowSettingsBody(BaseModel):
     azure_communication: str
 
 
+class WorkflowFeedbackBody(BaseModel):
+    node_id: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=4_000)
+
+
 _WORKFLOW_ROUTING_MODES = {
     "copilot_then_claude",
     "claude_only",
@@ -1095,6 +1100,12 @@ def api_workflow_chat(body: TextBody) -> dict:
         "summary": _workflow_summary(settings),
         "messages": history.get_workflow_chat_messages(),
     }
+
+
+@app.post("/api/workflow/feedback")
+def api_add_workflow_feedback(body: WorkflowFeedbackBody) -> dict:
+    history.add_workflow_feedback(body.node_id, body.text.strip())
+    return {"node_id": body.node_id, "message": "Feedback saved for this workflow action."}
 
 
 class ThreadBatchRequest(BaseModel):

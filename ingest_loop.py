@@ -23,7 +23,6 @@ import state
 from autofix import commit_autofix, run_deterministic_autofix
 from claude_runner import run_claude
 from config import Config, get_connection, load_config
-from graphify_context import get_graphify_context
 from retry import retry_once
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -170,17 +169,12 @@ def generate_plan(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int)
     )
 
     design_section, design_tools = _design_context_prompt(work_item.description)
-    graphify_section = get_graphify_context(
-        cfg.repo_path,
-        f"How to implement work item #{work_item.id}: {work_item.title}. {work_item.description}",
-    )
     prompt = (
         f"You must ONLY plan, not implement anything. For Azure DevOps work item "
         f"#{work_item.id} in the current repository, write a concise implementation plan.\n\n"
         f"Title: {work_item.title}\n\nDescription:\n{work_item.description}\n\n"
         f"{STYLE_GUIDE_INSTRUCTION}"
         f"{design_section}"
-        f"{graphify_section}\n\n"
         "Explore the code as needed (read-only) and write a plan with:\n"
         "- the main implementation steps, in order;\n"
         "- the files/modules likely involved;\n"
