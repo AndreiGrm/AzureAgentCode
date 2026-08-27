@@ -1,5 +1,5 @@
 #define AppName "Azure DevOps Agent Dashboard"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Azure DevOps Agent Dashboard"
 #define AppExeName "Azure DevOps Agent Dashboard.exe"
 
