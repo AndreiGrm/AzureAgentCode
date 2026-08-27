@@ -161,6 +161,15 @@ CREATE TABLE IF NOT EXISTS workflow_chat_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workflow_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_feedback_node_id
+    ON workflow_feedback(node_id, id);
 """
 
 # Azioni che corrispondono a un run_claude() effettivamente "in corso" per un
@@ -294,6 +303,15 @@ def get_workflow_chat_messages(limit: int = 30) -> list[dict]:
             (limit,),
         ).fetchall()
     return [dict(row) for row in reversed(rows)]
+
+
+def add_workflow_feedback(node_id: str, text: str) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO workflow_feedback (node_id, text, created_at) VALUES (?, ?, ?)",
+            (node_id, text, _now()),
+        )
 
 
 def start_run(script: str, pid: int | None = None) -> int:

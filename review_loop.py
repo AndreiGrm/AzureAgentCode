@@ -36,7 +36,6 @@ from agent_prompts import load_agent_prompt
 from autofix import commit_autofix, run_deterministic_autofix
 from claude_runner import run_claude
 from config import Config, get_connection, load_config
-from graphify_context import get_graphify_context
 from retry import retry_once
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -210,14 +209,10 @@ def plan_comment_batch(
         ["git", "diff", f"{cfg.base_branch}...{branch}"],
         cwd=cfg.repo_path, check=True, capture_output=True, text=True,
     ).stdout
-    graphify_section = get_graphify_context(
-        cfg.repo_path,
-        f"How to resolve PR comments for work item #{work_item_id}: {comment_list}",
-    )
     prompt = (
         f"Prepare a fix plan for PR review comments on work item "
         f"#{work_item_id}, on branch '{branch}'. Do not modify files, commit, or push.\n\n"
-        f"Selected comments:\n{comment_list}\n\n{graphify_section}\n\nPR diff:\n{diff}\n\n"
+        f"Selected comments:\n{comment_list}\n\nPR diff:\n{diff}\n\n"
         "Examine the diff and necessary files. Return a concise plan organized "
         "by file and thread, listing changes, tests to run, and any risks. Respond in English."
     )

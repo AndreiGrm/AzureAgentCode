@@ -76,6 +76,7 @@ SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
     ("AGENT_PROVIDER", "Agent provider", False, False),
     ("AGENT_MODEL", "Default agent model", False, False),
     ("AGENT_COMMAND", "External agent command (reads the prompt from stdin)", False, False),
+    ("AGENT_USE_HEADROOM", "Optimize agent context with Headroom", False, False),
     ("AGENT_MAX_OUTPUT_TOKENS", "Output token limit per run", False, False),
     ("AGENT_TOKEN_BUDGET", "Total token budget", False, False),
 ]
@@ -83,8 +84,9 @@ SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
 SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
     "AGENT_PROVIDER": [
         ("claude_sdk", "Claude Code (default)"),
+        ("auto", "Automatic: Copilot analysis / Claude execution"),
         ("command", "External CLI agent"),
-        ("copilot_cli", "GitHub Copilot CLI (experimental)"),
+        ("copilot_cli", "GitHub Copilot CLI"),
     ],
     "AGENT_MODEL": [
         ("", "Claude Code default"),
@@ -107,10 +109,15 @@ SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
         ("5000000", "5.000.000 token"),
         ("10000000", "10.000.000 token"),
     ],
+    "AGENT_USE_HEADROOM": [
+        ("", "Disabled"),
+        ("true", "Enabled"),
+    ],
 }
 
 SETTINGS_DEFAULTS = {
     "AGENT_PROVIDER": "claude_sdk",
+    "AGENT_USE_HEADROOM": "true",
 }
 
 def _mask_secret(value: str) -> str:

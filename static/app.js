@@ -76,6 +76,139 @@ const TICKET_FLOW = [
   { id: "pr", label: "PR completed", description: "Work completed" },
 ];
 
+const WORKFLOW_MAP_NODES = [
+  ["discover", "Discover tickets", "Ingest", "Azure DevOps SDK + PAT", "Reads assigned current-iteration work items from Azure Boards."],
+  ["decompose", "Decompose Epic", "Ingest", "Copilot + Headroom + Graphify", "Splits an Epic into independent PBIs before implementation."],
+  ["branch", "Create or reuse branch", "Git", "git", "Creates the feature/bugfix branch or resumes the known branch."],
+  ["graphify", "Query Graphify", "Context", "graphify query", "Uses the existing code graph before broad Read, Grep, or Glob searches."],
+  ["headroom", "Optimize context", "Context", "headroom wrap copilot", "Routes supported Copilot runs through Headroom when AGENT_USE_HEADROOM is true."],
+  ["plan", "Generate plan", "Agent", "Copilot + Headroom + Graphify", "Produces a read-only implementation plan and waits for approval."],
+  ["approve-plan", "Approve plan", "User", "Dashboard user action", "Approves the plan before any implementation begins."],
+  ["implement", "Implement ticket", "Agent", "Claude SDK + Read/Edit/Bash + git", "Edits code, commits, and pushes the approved work item."],
+  ["autofix", "Run deterministic autofix", "Quality", "prettier + nx lint", "Runs formatting and lint fixes without an AI agent."],
+  ["technical-summary", "Save technical summary", "History", "SQLite history", "Persists implementation details and live corrections for later review."],
+  ["run-checks", "Run technical checks", "Quality", "project test/lint/type-check/build", "Executes the detected test, lint, type-check, and build commands."],
+  ["create-pr", "Create PR", "Azure DevOps", "Azure DevOps SDK + PAT", "Creates a pull request only after checks pass and the configured policy allows it."],
+  ["autocomplete", "Auto-complete PR", "Azure DevOps", "Azure DevOps SDK + PAT", "Requests Azure DevOps auto-completion when explicitly selected."],
+  ["review-pr", "Run synthetic review", "Review", "Claude SDK + git diff", "Posts review findings using the configured review workflow."],
+  ["read-comments", "Read PR comments", "Review", "Azure DevOps SDK + PAT", "Loads unresolved Azure DevOps comment threads."],
+  ["classify-comment", "Classify comment", "Agent", "Claude SDK + Read/Edit/Bash", "Separates mechanical fixes from issues requiring human judgment."],
+  ["plan-batch", "Plan comment fixes", "Review", "Copilot + Headroom + Graphify", "Builds a plan for the selected PR comment fixes."],
+  ["apply-batch", "Apply planned fixes", "Agent", "Claude SDK + Read/Edit", "Applies approved comment fixes without committing first."],
+  ["commit-batch", "Commit and push fixes", "Git", "Claude SDK + git + tests", "Commits the approved batch and pushes it to the PR branch."],
+  ["reply-resolve", "Reply and resolve", "Azure DevOps", "Azure DevOps SDK + PAT", "Publishes a reply and resolves a selected review thread."],
+  ["request-fix", "Request a fix", "User", "Dashboard + Claude SDK", "Sends a correction for a completed implementation."],
+  ["live-correction", "Send live correction", "User", "Dashboard + Claude SDK", "Interrupts a compatible active agent turn and injects the feedback."],
+  ["block", "Block ticket", "User", "Azure DevOps SDK + PAT", "Stops automatic progress and marks the ticket as blocked."],
+  ["close", "Close ticket", "User", "Azure DevOps SDK + PAT", "Marks the ticket completed manually in Azure Boards."],
+  ["reopen", "Reopen ticket", "User", "Azure DevOps SDK + PAT", "Removes completion/blocking tags so automation can continue."],
+  ["restart", "Restart from scratch", "User", "Azure DevOps SDK + git", "Clears workflow state, optionally deletes the local branch, and starts planning again."],
+  ["ticket-chat", "Plan through ticket chat", "User", "Copilot + Headroom + Graphify", "Saves a ticket request and generates a read-only plan."],
+  ["workflow-settings", "Save workflow policy", "Settings", "Dashboard + SQLite", "Changes agent routing and Azure DevOps communication policy."],
+  ["workflow-chat", "Configure workflow chat", "Settings", "Dashboard + SQLite", "Interprets supported natural-language routing and approval instructions."],
+  ["agent-settings", "Configure agent", "Settings", "Dashboard + .env", "Selects Claude, Copilot, auto routing, model, budgets, and Headroom."],
+  ["notifications", "Read notifications", "Dashboard", "SQLite history", "Shows attention, quality, and workflow events."],
+  ["history", "Inspect history", "Dashboard", "SQLite history", "Shows persisted runs, decisions, and messages."],
+  ["dashboard", "Inspect metrics", "Dashboard", "SQLite history", "Filters completion, tokens, cost, and throughput metrics."],
+];
+
+let selectedWorkflowMapNode = null;
+let workflowMapTransform = { scale: 1, x: 0, y: 0 };
+
+function renderWorkflowMap() {
+  const canvas = document.getElementById("workflow-map-canvas");
+  if (canvas.children.length) return;
+  for (const [id, title, group, tools, description] of WORKFLOW_MAP_NODES) {
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "workflow-map-node";
+    node.dataset.nodeId = id;
+    node.innerHTML = `<span>${group}</span><strong>${title}</strong><small>Uses: ${tools}</small>`;
+    node.addEventListener("click", () => selectWorkflowMapNode(id));
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") selectWorkflowMapNode(id);
+    });
+    canvas.appendChild(node);
+  }
+  setupWorkflowMapInteractions();
+}
+
+function updateWorkflowMapTransform() {
+  const canvas = document.getElementById("workflow-map-canvas");
+  canvas.style.transform = `translate(${workflowMapTransform.x}px, ${workflowMapTransform.y}px) scale(${workflowMapTransform.scale})`;
+}
+
+function selectWorkflowMapNode(nodeId) {
+  selectedWorkflowMapNode = WORKFLOW_MAP_NODES.find(([id]) => id === nodeId) || null;
+  for (const node of document.querySelectorAll(".workflow-map-node")) {
+    const selected = node.dataset.nodeId === nodeId;
+    node.classList.toggle("selected", selected);
+    node.setAttribute("aria-pressed", String(selected));
+  }
+  const detail = document.getElementById("workflow-map-detail");
+  detail.innerHTML = "";
+  const title = document.createElement("strong");
+  title.textContent = `${selectedWorkflowMapNode[1]} — ${selectedWorkflowMapNode[2]}`;
+  const description = document.createElement("p");
+  description.textContent = selectedWorkflowMapNode[4];
+  const tools = document.createElement("p");
+  tools.textContent = `Uses: ${selectedWorkflowMapNode[3]}`;
+  detail.append(title, description, tools);
+  document.getElementById("workflow-feedback-input").disabled = false;
+  document.getElementById("workflow-feedback-send-btn").disabled = false;
+  document.getElementById("workflow-feedback-input").focus();
+}
+
+function setupWorkflowMapInteractions() {
+  const viewport = document.getElementById("workflow-map-viewport");
+  let dragStart = null;
+  viewport.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const scale = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    workflowMapTransform.scale = Math.max(.45, Math.min(2.5, workflowMapTransform.scale * scale));
+    updateWorkflowMapTransform();
+  }, { passive: false });
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".workflow-map-node")) return;
+    dragStart = { x: event.clientX, y: event.clientY, startX: workflowMapTransform.x, startY: workflowMapTransform.y };
+    viewport.setPointerCapture(event.pointerId);
+  });
+  viewport.addEventListener("pointermove", (event) => {
+    if (!dragStart) return;
+    workflowMapTransform.x = dragStart.startX + event.clientX - dragStart.x;
+    workflowMapTransform.y = dragStart.startY + event.clientY - dragStart.y;
+    updateWorkflowMapTransform();
+  });
+  viewport.addEventListener("pointerup", () => { dragStart = null; });
+}
+
+function resetWorkflowMap() {
+  workflowMapTransform = { scale: 1, x: 0, y: 0 };
+  updateWorkflowMapTransform();
+}
+
+async function sendWorkflowMapFeedback(event) {
+  event.preventDefault();
+  if (!selectedWorkflowMapNode) return;
+  const input = document.getElementById("workflow-feedback-input");
+  const hint = document.getElementById("workflow-feedback-hint");
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await fetchJson("/api/workflow/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: selectedWorkflowMapNode[0], text }),
+    });
+    input.value = "";
+    hint.textContent = `Saved for “${selectedWorkflowMapNode[1]}”.`;
+    hint.classList.remove("error");
+    showActionFeedback("Workflow feedback saved.");
+  } catch (err) {
+    hint.textContent = `Unable to save feedback: ${err.message}`;
+    hint.classList.add("error");
+  }
+}
+
 function ticketFlowStage(action) {
   if (isCompletedAction(action)) return "pr";
   if (PR_REVIEW_ACTIONS.includes(action)) return "review";
@@ -683,6 +816,7 @@ function renderWorkflowChat(messages) {
 }
 
 function renderWorkflow(data) {
+  renderWorkflowMap();
   const settings = data.settings;
   document.getElementById("workflow-summary").textContent = data.summary;
   document.getElementById("workflow-routing").value = settings.routing_mode;
@@ -2300,6 +2434,16 @@ document.getElementById("dashboard-apply-btn").addEventListener("click", loadDas
 document.getElementById("notifications-refresh-btn").addEventListener("click", loadNotifications);
 document.getElementById("workflow-save-btn").addEventListener("click", saveWorkflow);
 document.getElementById("workflow-chat-send-btn").addEventListener("click", sendWorkflowChat);
+document.getElementById("workflow-feedback-form").addEventListener("submit", sendWorkflowMapFeedback);
+document.getElementById("workflow-map-zoom-in").addEventListener("click", () => {
+  workflowMapTransform.scale = Math.min(2.5, workflowMapTransform.scale * 1.2);
+  updateWorkflowMapTransform();
+});
+document.getElementById("workflow-map-zoom-out").addEventListener("click", () => {
+  workflowMapTransform.scale = Math.max(.45, workflowMapTransform.scale / 1.2);
+  updateWorkflowMapTransform();
+});
+document.getElementById("workflow-map-reset").addEventListener("click", resetWorkflowMap);
 
 (async function init() {
   applyLayout();

@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 )
 
 import history
+from workflow_context import prepare_agent_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -116,17 +117,49 @@ def _run_command_agent(
     return ClaudeRunResult(output=completed.stdout)
 
 
-def _run_copilot_cli_agent() -> ClaudeRunResult:
-    """Controlla Copilot CLI senza avviare una sessione interattiva nel worker."""
+def _run_copilot_cli_agent(
+    prompt: str,
+    cwd: str,
+    allowed_tools: list[str],
+    model: str | None,
+) -> ClaudeRunResult:
+    """Esegue Copilot CLI in modalita' non interattiva, limitato alla repository."""
     if shutil.which("copilot") is None:
         raise RuntimeError(
             "GitHub Copilot CLI is not installed or is not on PATH. "
             "Install it with `winget install GitHub.Copilot`, then run `copilot login`."
         )
-    raise RuntimeError(
-        "GitHub Copilot CLI was detected but requires an interactive session. "
-        "It cannot yet safely run the dashboard's automatic runs; use `copilot` from the terminal."
+    scoped_prompt = (
+        f"{prompt}\n\nOperational permission boundary: use only the capabilities "
+        f"required for this run ({', '.join(allowed_tools)}); do not access paths "
+        "outside the current repository or use network tools."
     )
+    command = [
+        "copilot", "-C", cwd, "--prompt", scoped_prompt, "--silent", "--no-remote",
+        "--no-ask-user", "--allow-all",
+    ]
+    if model:
+        command.extend(["--model", model])
+    if os.environ.get("AGENT_USE_HEADROOM", "").strip().lower() in {"1", "true", "yes"}:
+        if shutil.which("headroom") is None:
+            raise RuntimeError(
+                "AGENT_USE_HEADROOM is enabled but the 'headroom' command was not found on PATH."
+            )
+        command = ["headroom", "wrap", "copilot", "--", *command[1:]]
+    completed = subprocess.run(
+        command, cwd=cwd, text=True, encoding="utf-8", capture_output=True, check=False
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "no details available"
+        raise RuntimeError(f"GitHub Copilot CLI exited with code {completed.returncode}: {detail}")
+    return ClaudeRunResult(output=completed.stdout)
+
+
+def _select_provider(configured_provider: str, allowed_tools: list[str]) -> str:
+    """In auto, riserva Claude ai run che possono modificare repository o Git."""
+    if configured_provider != "auto":
+        return configured_provider
+    return "claude_sdk" if {"Bash", "Edit"} & set(allowed_tools) else "copilot_cli"
 
 
 def run_claude(
@@ -152,20 +185,27 @@ def run_claude(
     _ensure_token_budget_available()
     configured_model = os.environ.get("AGENT_MODEL", "").strip() or None
     effective_model = model or configured_model
-    provider = os.environ.get("AGENT_PROVIDER", "claude_sdk").strip() or "claude_sdk"
-    if provider == "command":
-        return _run_command_agent(prompt, cwd, allowed_tools, effective_model)
-    if provider == "copilot_cli":
-        return _run_copilot_cli_agent()
-    if provider != "claude_sdk":
-        raise RuntimeError(f"Unsupported agent provider: {provider}")
-
     max_output_tokens = _positive_environment_int("AGENT_MAX_OUTPUT_TOKENS")
     if max_output_tokens is not None:
         prompt = (
             f"{prompt}\n\nOperational constraint: keep the response within "
             f"{max_output_tokens} output tokens."
         )
+    provider = _select_provider(
+        os.environ.get("AGENT_PROVIDER", "claude_sdk").strip() or "claude_sdk",
+        allowed_tools,
+    )
+    prompt = prepare_agent_prompt(
+        prompt,
+        cwd,
+        include_graphify=provider == "copilot_cli",
+    )
+    if provider == "command":
+        return _run_command_agent(prompt, cwd, allowed_tools, effective_model)
+    if provider == "copilot_cli":
+        return _run_copilot_cli_agent(prompt, cwd, allowed_tools, effective_model)
+    if provider != "claude_sdk":
+        raise RuntimeError(f"Unsupported agent provider: {provider}")
 
     async def _run() -> ClaudeRunResult:
         options = ClaudeAgentOptions(
