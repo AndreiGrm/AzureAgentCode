@@ -78,7 +78,6 @@ SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
     ("AGENT_COMMAND", "Comando agente esterno (legge il prompt da stdin)", False, False),
     ("AGENT_MAX_OUTPUT_TOKENS", "Limite token di output per esecuzione", False, False),
     ("AGENT_TOKEN_BUDGET", "Budget token totale", False, False),
-    ("GITHUB_RELEASE_TOKEN", "Token GitHub per controllare aggiornamenti privati", False, True),
 ]
 
 SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
