@@ -1,152 +1,188 @@
 # Azure DevOps Agent Dashboard
 
-Applicazione desktop locale per gestire ticket Azure DevOps con workflow
-controllato: legge PBI assegnati, crea branch, pianifica, implementa, verifica
-e gestisce pull request. La dashboard mostra stato, storico, costo/token,
-notifiche e mappa interattiva di tutte le azioni.
+Azure DevOps Agent Dashboard is a local desktop companion for teams that want
+help moving work items through their normal development process.
 
-La configurazione operativa avviene dalla pagina **Settings** della dashboard.
-Credenziali e impostazioni restano nel profilo Windows dell'utente; non serve
-creare o modificare file `.env` manualmente.
+It gives you one place to see assigned work, review proposed plans, follow
+progress, run checks, manage pull requests, and decide when the agent should
+continue. You stay in control: planning and code changes have approval points,
+and the dashboard records what happened along the way.
 
-## Come funziona oggi
+## What it helps with
 
-### 1. Ticket e Azure DevOps: zero IA
+- Shows Azure DevOps work assigned to you.
+- Creates or reuses a local branch for each work item.
+- Prepares a plan before making changes.
+- Helps implement approved work and requested fixes.
+- Runs project checks before a pull request is created.
+- Helps review pull request comments and organize fixes.
+- Keeps a clear history of decisions, checks, notifications, and feedback.
 
-Quando viene eseguito Ingest, applicazione:
+## The workflow at a glance
 
-1. legge ticket assegnati nell'iterazione corrente tramite Azure DevOps SDK;
-2. mostra PBI/Task nella pagina **Ticket**;
-3. mantiene stato tramite tag Azure Boards (`agent:plan-ready`,
-   `agent:implemented`, `agent:blocked`, ecc.);
-4. crea o riusa branch locali `feature/<id>__<titolo>` oppure
-   `bugfix/<id>__<titolo>`;
-5. salva eventi, piani, notifiche e qualità in SQLite locale.
+The **Workflow** page explains the full process with a zoomable action map.
+Every action displays its tools under **Uses**, and each route has a color:
 
-Queste fasi usano Azure DevOps SDK, Git e SQLite. Nessun modello IA, nessun
-token.
+| Stage | What happens | Tools used |
+|---|---|---|
+| Read work | The dashboard loads assigned work and keeps its state up to date. | Azure DevOps, Git, local history |
+| Understand | The agent explores the codebase and prepares a plan. | Copilot, Headroom, Graphify |
+| Approve | You review and approve the plan. | Dashboard |
+| Build | The approved work is implemented and prepared for review. | Claude, Git, repository tools |
+| Check and share | Project checks run before the pull request is created. | Project scripts, Azure DevOps |
 
-### 2. Analisi: Copilot + Headroom + Graphify
+You can select any map card to see its purpose and leave feedback about how
+the agent should behave at that point.
 
-Con provider **Automatic: Copilot analysis / Claude execution**:
+## How agents are used
 
-- Copilot prepara piani read-only, scompone Epic e pianifica correzioni PR;
-- Headroom instrada Copilot tramite proxy e riduce contesto;
-- Graphify interroga `graphify-out/graph.json` prima delle ricerche estese;
-- se Graphify non è disponibile, Copilot usa Read, Grep e Glob.
+The recommended setting is **Automatic: Copilot analysis / Claude execution**.
 
-Graphify viene usato solo nella fase di analisi. Dopo piano approvato, non
-viene interrogato di nuovo inutilmente.
+### Copilot, Headroom, and Graphify
 
-### 3. Implementazione: Claude
+Copilot handles read-only work such as planning, exploring the codebase,
+breaking an Epic into smaller items, and planning pull-request fixes.
 
-Claude resta provider per attività che modificano repository:
+Headroom helps keep Copilot context efficient. Graphify helps it start from the
+most relevant areas of a codebase when a code graph is available. If no graph is
+available, planning still works through normal repository exploration.
 
-- implementazione ticket;
-- fix richiesti dopo review;
-- classificazione e applicazione commenti PR;
-- commit, push e synthetic review.
+### Claude
 
-Usa piano approvato, file repository e tool consentiti. Risposte naturali sono
-richieste in stile Caveman Ultra: concise, ma con decisioni, rischi, file e
-verifiche. Output macchina, come JSON e marker di stato, restano invariati.
+Claude handles work that changes the local repository: implementing approved
+work, applying fixes, and Git operations such as commit and push.
 
-### 4. Qualità e pull request: zero IA
+Its written summaries use a compact Caveman Ultra style: important decisions,
+risks, changed files, and verification results remain, while repeated filler is
+removed. Structured responses such as JSON remain unchanged.
 
-Dopo implementazione:
+### No AI required
 
-1. vengono eseguiti formatter e lint deterministici;
-2. dashboard rileva ed esegue script repository: test, lint, type-check,
-   build, privilegiando comandi `:affected`;
-3. PR viene bloccata finché verifiche del commit corrente non passano;
-4. Azure DevOps SDK crea PR o abilita auto-complete solo secondo policy scelta.
+Several steps do not use an AI model or tokens:
 
-### Mappa Workflow
+- loading work items;
+- creating or reusing branches;
+- storing history and notifications;
+- formatting and deterministic lint fixes;
+- running tests, lint, type checks, and builds;
+- creating and updating pull requests through Azure DevOps.
 
-Pagina **Workflow** contiene:
+## Getting started
 
-- pipeline sintetica con frecce colorate: strumenti deterministici, Copilot +
-  Headroom + Graphify, contesto già approvato, Claude;
-- mappa zoomabile/pannabile con ogni azione applicativa;
-- riga `Uses:` su ogni card: mostra strumenti reali coinvolti;
-- dettaglio e feedback persistente per ogni nodo.
+1. Start the desktop app.
+2. Open **Settings**.
+3. Enter Azure DevOps connection details, local repository path, branch, and
+   access token.
+4. Select **Automatic: Copilot analysis / Claude execution**.
+5. Keep **Optimize agent context with Headroom** enabled.
+6. Open **Ticket** and choose when to run Ingest or approve a plan.
 
-## Prima configurazione
+The app stores settings and local history in your Windows profile. The access
+token is never returned to the browser in plain text.
 
-Apri applicazione, vai su **Settings**, completa:
+## Running the app during development
 
-- organizzazione, progetto, team e repository Azure DevOps;
-- path repository Git locale;
-- branch base;
-- PAT Azure DevOps;
-- provider agente e modello.
+Requirements:
 
-Configurazione consigliata:
-
-- **Agent provider:** `Automatic: Copilot analysis / Claude execution`
-- **Optimize agent context with Headroom:** `Enabled`
-
-Servono:
-
+- Python 3.10 or later;
 - Git;
-- Python 3.10+;
-- repository target già clonato;
-- Azure DevOps PAT con permessi Work Items e Code read/write;
-- GitHub Copilot CLI autenticato;
-- Claude Code autenticato per fasi di scrittura;
-- Headroom proxy attivo per misurare/comprimere traffico Copilot;
-- Graphify e un grafo esistente, opzionali ma consigliati.
+- a local clone of the target Azure DevOps repository;
+- Azure DevOps access token with Work Items and Code read/write permissions;
+- Azure CLI, including its `azure-devops` extension;
+- authenticated GitHub Copilot CLI;
+- authenticated Claude Code for code-changing tasks;
+- Headroom and Graphify for the recommended optimized workflow.
 
-## Avvio sviluppo
+### Connect the command-line tools
 
-Da repository applicativo:
+Before running agent tasks, install and sign in to the command-line tools used
+by the dashboard:
+
+```powershell
+# Azure DevOps integration
+az extension add --name azure-devops
+
+# GitHub Copilot
+copilot login
+
+# Claude tasks that change code
+claude login
+```
+
+Headroom should be running and connected to Copilot. It reduces the context
+sent to supported Copilot tasks and records token savings:
+
+```powershell
+headroom init -g --memory copilot
+headroom proxy
+```
+
+Graphify is optional, but recommended for larger repositories. Build or update
+the graph inside the target repository before asking the agent to plan work:
+
+```powershell
+graphify update .
+```
+
+Graphify improves codebase exploration by identifying relevant code paths.
+Headroom improves context efficiency. Caveman Ultra improves natural-language
+agent responses: it keeps decisions, risks, changed files, and checks while
+removing repeated wording. These three tools improve speed, context quality,
+and response clarity; they do not replace source verification or project tests.
+
+Install Python dependencies:
 
 ```powershell
 pip install -r requirements.txt
+```
+
+Start the desktop app:
+
+```powershell
 python desktop_app.py
 ```
 
-App apre finestra desktop e dashboard locale su `http://127.0.0.1:8765`.
+The app also serves its local dashboard at `http://127.0.0.1:8765`.
 
-Per debug browser:
+For browser-only development:
 
 ```powershell
 python dashboard_server.py
 ```
 
-Per avviare singoli loop dopo configurazione dashboard:
+For a direct workflow run after setup:
 
 ```powershell
 python ingest_loop.py
 python review_loop.py
 ```
 
-Non eseguire Ingest e Review contemporaneamente sulla stessa copia repository:
-condividono working tree Git.
+Do not run Ingest and Review at the same time against the same local
+repository, because both use its Git working tree.
 
-## Struttura
+## Project layout
 
-| File | Ruolo |
+| File or folder | Purpose |
 |---|---|
-| `desktop_app.py` | Finestra desktop e server locale |
-| `dashboard_server.py` | API FastAPI dashboard |
-| `static/` | Interfaccia dashboard e mappa workflow |
-| `ingest_loop.py` | Ticket, piano, branch, implementazione |
-| `review_loop.py` | Commenti PR, review e fix |
-| `claude_runner.py` | Routing Claude, Copilot e Headroom |
-| `workflow_context.py` | Contesto Graphify e output Caveman Ultra |
-| `graphify_context.py` | Query Graphify con fallback esplicito |
-| `autofix.py` | Formatter/lint deterministici |
-| `quality_checks.py` | Rilevamento/esecuzione verifiche repository |
-| `history.py` | SQLite: run, eventi, qualità, feedback |
-| `state.py` | Tag e stato Azure Boards |
-| `config.py` | Configurazione locale dashboard |
+| `desktop_app.py` | Desktop window and local server startup |
+| `dashboard_server.py` | Dashboard API |
+| `static/` | Dashboard interface and workflow map |
+| `ingest_loop.py` | Work item discovery, planning, branches, implementation |
+| `review_loop.py` | Pull request comments, review, and fixes |
+| `claude_runner.py` | Claude, Copilot, and Headroom routing |
+| `workflow_context.py` | Graphify context and compact agent response guidance |
+| `graphify_context.py` | Safe Graphify query with repository-search fallback |
+| `autofix.py` | Deterministic formatting and lint fixes |
+| `quality_checks.py` | Project check discovery and execution |
+| `history.py` | Local history, quality results, and map feedback |
+| `state.py` | Azure Boards tags and workflow state |
+| `config.py` | Local dashboard settings |
 
-## Sicurezza operativa
+## Safety defaults
 
-- PAT non viene restituito in chiaro alla UI.
-- Dashboard ascolta solo su `127.0.0.1`.
-- Nessuna PR prima delle verifiche tecniche richieste.
-- Piano richiede approvazione prima dell'implementazione.
-- Batch fix PR richiede approvazione prima di commit/push.
-- Headroom e Graphify non sostituiscono verifica dei file sorgente.
+- Dashboard listens only on `127.0.0.1`.
+- Plans are approved before implementation begins.
+- Pull requests wait for required technical checks.
+- Pull-request fix batches wait for approval before commit and push.
+- Graphify and Headroom help with context; agents still verify source files
+  before relying on details.
