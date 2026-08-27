@@ -277,7 +277,7 @@ def update_workflow_settings(routing_mode: str, azure_communication: str) -> dic
 
 def add_workflow_chat_message(role: str, content: str) -> None:
     if role not in {"user", "assistant"}:
-        raise ValueError(f"Ruolo chat workflow non valido: {role}")
+        raise ValueError(f"Invalid workflow chat role: {role}")
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -741,7 +741,7 @@ def update_pr_review_batch_status(work_item_id: int, status: str) -> None:
 
 def add_ticket_chat_message(work_item_id: int, role: str, content: str) -> int:
     if role not in {"user", "assistant"}:
-        raise ValueError(f"Ruolo chat non valido: {role}")
+        raise ValueError(f"Invalid chat role: {role}")
     init_db()
     with _connect() as conn:
         cursor = conn.execute(

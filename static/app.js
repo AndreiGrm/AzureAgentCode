@@ -17,47 +17,47 @@ const ticketInfoCache = new Map();
 const ticketInfoRequests = new Map();
 
 const ACTION_LABELS = {
-  branch_created: "Branch creato",
-  generating_plan: "Generazione piano",
-  plan_ready: "Piano generato",
-  plan_approved: "Piano approvato",
-  implementing: "Implementazione in corso",
-  implemented: "Pronto per la verifica",
-  pr_opened: "PR aperta",
-  blocked: "Bloccato",
-  stopped: "Fermato manualmente",
-  decomposing: "Scomposizione Epic",
-  epic_decomposed: "Epic scomposta",
-  classifying: "Valutazione commento",
-  mechanical_fix: "Fix meccanico",
-  needs_human: "Serve revisione umana",
+  branch_created: "Branch created",
+  generating_plan: "Generating plan",
+  plan_ready: "Plan generated",
+  plan_approved: "Plan approved",
+  implementing: "Implementation in progress",
+  implemented: "Ready for verification",
+  pr_opened: "PR opened",
+  blocked: "Blocked",
+  stopped: "Stopped manually",
+  decomposing: "Decomposing Epic",
+  epic_decomposed: "Epic decomposed",
+  classifying: "Evaluating comment",
+  mechanical_fix: "Mechanical fix",
+  needs_human: "Needs human review",
   autofix_applied: "Autofix lint/format",
-  fixing: "Applicazione fix in corso",
-  fix_applied: "Fix applicato",
-  fix_requested: "Fix richiesto",
-  self_review: "Self-review completata",
-  quality_passed: "Verifiche tecniche superate",
-  quality_failed: "Verifiche tecniche fallite",
-  correction_sent: "Correzione inviata",
-  pr_checked: "Controllo PR completato",
-  comment_resolved: "Commento risolto",
-  comment_resolve_failed: "Fix commento non riuscito",
-  comment_skipped: "Commento ignorato",
-  comment_batch_planned: "Piano correzioni PR pronto",
-  comment_batch_applied: "Correzioni PR applicate",
-  comment_batch_failed: "Correzioni PR non completate",
-  comment_batch_committed: "Correzioni PR pubblicate",
-  comment_batch_commit_failed: "Commit correzioni PR non riuscito",
-  ticket_chat_planned: "Piano dalla chat pronto",
-  restart_requested: "Ripartenza da zero richiesta",
-  external_change: "Aggiornato su Azure Boards",
-  external_completed: "Completato su Azure Boards",
-  pr_completed: "PR completata",
-  pr_abandoned: "PR abbandonata",
-  closed: "Chiuso manualmente",
-  deleted: "Eliminato",
-  reopened: "Riaperto",
-  error: "Errore",
+  fixing: "Applying fix",
+  fix_applied: "Fix applied",
+  fix_requested: "Fix requested",
+  self_review: "Self-review completed",
+  quality_passed: "Technical checks passed",
+  quality_failed: "Technical checks failed",
+  correction_sent: "Correction sent",
+  pr_checked: "PR check completed",
+  comment_resolved: "Comment resolved",
+  comment_resolve_failed: "Comment fix failed",
+  comment_skipped: "Comment ignored",
+  comment_batch_planned: "PR fixes plan ready",
+  comment_batch_applied: "PR fixes applied",
+  comment_batch_failed: "PR fixes incomplete",
+  comment_batch_committed: "PR fixes published",
+  comment_batch_commit_failed: "PR fixes commit failed",
+  ticket_chat_planned: "Plan from chat ready",
+  restart_requested: "Restart from scratch requested",
+  external_change: "Updated in Azure Boards",
+  external_completed: "Completed in Azure Boards",
+  pr_completed: "PR completed",
+  pr_abandoned: "PR abandoned",
+  closed: "Closed manually",
+  deleted: "Deleted",
+  reopened: "Reopened",
+  error: "Error",
 };
 
 const LIVE_ACTIONS = ["implementing", "fixing", "classifying"];
@@ -69,11 +69,11 @@ const PR_REVIEW_ACTIONS = [
 ];
 const COMPLETED_ACTIONS = ["pr_completed", "pr_abandoned", "closed", "external_completed"];
 const TICKET_FLOW = [
-  { id: "loaded", label: "Caricati", description: "In attesa di essere analizzati" },
-  { id: "plan", label: "Piano pronto", description: "Richiedono l'approvazione del piano" },
-  { id: "progress", label: "In lavorazione", description: "L'agente sta lavorando o verificando" },
-  { id: "review", label: "Attende revisione", description: "Richiedono una tua azione o revisione" },
-  { id: "pr", label: "PR completata", description: "Lavorazione conclusa" },
+  { id: "loaded", label: "Loaded", description: "Waiting to be analyzed" },
+  { id: "plan", label: "Plan ready", description: "Require plan approval" },
+  { id: "progress", label: "In progress", description: "The agent is working or checking" },
+  { id: "review", label: "Awaiting review", description: "Require your action or review" },
+  { id: "pr", label: "PR completed", description: "Work completed" },
 ];
 
 function ticketFlowStage(action) {
@@ -133,10 +133,10 @@ function prUrl(id) {
 
 function formatTime(iso) {
   const d = new Date(iso);
-  return d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "medium" });
+  return d.toLocaleString("en-US", { dateStyle: "short", timeStyle: "medium" });
 }
 
-function showDialog({ title, message, confirmLabel = "Conferma", cancelLabel = "Annulla", isError = false }) {
+function showDialog({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", isError = false }) {
   const dialog = document.getElementById("app-dialog");
   const titleEl = document.getElementById("app-dialog-title");
   const messageEl = document.getElementById("app-dialog-message");
@@ -165,15 +165,15 @@ function showDialog({ title, message, confirmLabel = "Conferma", cancelLabel = "
   });
 }
 
-function confirmAction(message, confirmLabel = "Conferma") {
-  return showDialog({ title: "Conferma azione", message, confirmLabel });
+function confirmAction(message, confirmLabel = "Confirm") {
+  return showDialog({ title: "Confirm action", message, confirmLabel });
 }
 
 async function showError(message) {
   await showDialog({
-    title: "Operazione non riuscita",
+    title: "Operation failed",
     message,
-    confirmLabel: "Chiudi",
+    confirmLabel: "Close",
     isError: true,
   });
 }
@@ -215,13 +215,13 @@ function setRequestLoading(isLoading, label) {
 
 async function fetchJson(url, options, { showLoader = true, loadingLabel } = {}) {
   const method = (options && options.method) || "GET";
-  const label = loadingLabel || (method === "GET" ? "Caricamento dati..." : "Elaborazione richiesta...");
+  const label = loadingLabel || (method === "GET" ? "Loading data..." : "Processing request...");
   if (showLoader) setRequestLoading(true, label);
   try {
     const res = await fetch(url, options);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || `Errore ${res.status}`);
+      throw new Error(body.detail || `Error ${res.status}`);
     }
     return res.json();
   } finally {
@@ -244,19 +244,19 @@ function renderStatusCard(script, data) {
   if (data.active) {
     card.classList.add("active");
     const ticket = workItemId ? `ticket #${workItemId}` : "";
-    const step = ev ? actionLabel(ev.action) : "avvio in corso...";
-    line.textContent = `In esecuzione — ${ticket} ${step}`.trim();
+    const step = ev ? actionLabel(ev.action) : "starting...";
+    line.textContent = `Running — ${ticket} ${step}`.trim();
     stopBtn.hidden = false;
     if (workItemId) {
       blockBtn.hidden = false;
-      blockBtn.textContent = `Blocca ticket #${workItemId}`;
+      blockBtn.textContent = `Block ticket #${workItemId}`;
       blockBtn.dataset.workItemId = workItemId;
     } else {
       blockBtn.hidden = true;
     }
   } else {
     card.classList.remove("active");
-    line.textContent = "Inattivo";
+    line.textContent = "Inactive";
     stopBtn.hidden = true;
     blockBtn.hidden = true;
   }
@@ -284,36 +284,36 @@ async function refreshAutomaticIngestStatus(silent = false) {
   const status = document.getElementById("automatic-ingest-status");
   const label = document.getElementById("automatic-ingest-label");
   const intervalMinutes = Math.round(data.interval_seconds / 60);
-  const lastCheck = data.last_check ? `Ultimo controllo: ${formatTime(data.last_check)}.` : "";
-  const nextCheck = data.next_check ? ` Prossimo: ${formatTime(data.next_check)}.` : "";
-  label.textContent = `Controllo automatico ogni ${intervalMinutes} minuti. ${lastCheck}${nextCheck}`;
+  const lastCheck = data.last_check ? `Last check: ${formatTime(data.last_check)}.` : "";
+  const nextCheck = data.next_check ? ` Next: ${formatTime(data.next_check)}.` : "";
+  label.textContent = `Automatic check every ${intervalMinutes} minutes. ${lastCheck}${nextCheck}`;
   status.classList.toggle("error", String(data.outcome).startsWith("error:"));
-  status.title = `Esito: ${data.outcome}`;
+  status.title = `Outcome: ${data.outcome}`;
 }
 
 async function stopRun(script) {
-  if (!await confirmAction(`Fermare il run di ${script} in corso?`, "Ferma")) return;
+  if (!await confirmAction(`Stop the current ${script} run?`, "Stop")) return;
   try {
     await fetchJson(`/api/stop/${script}`, { method: "POST" });
-    showActionFeedback(`Run ${script} fermato. Stato aggiornato.`);
+    showActionFeedback(`${script} run stopped. Status updated.`);
   } catch (err) {
-    showActionFeedback(`Impossibile fermare ${script}: ${err.message}`, true);
-    await showError(`Impossibile fermare ${script}: ${err.message}`);
+    showActionFeedback(`Unable to stop ${script}: ${err.message}`, true);
+    await showError(`Unable to stop ${script}: ${err.message}`);
   }
   await refreshAfterTicketMutation();
 }
 
 async function blockWorkItem(workItemId) {
   if (!await confirmAction(
-    `Taggare il ticket #${workItemId} come agent:blocked? Non verra' piu' ripreso automaticamente.`,
-    "Blocca"
+    `Tag ticket #${workItemId} as agent:blocked? It will no longer be picked up automatically.`,
+    "Block"
   )) return;
   try {
     await fetchJson(`/api/block/${workItemId}`, { method: "POST" });
-    showActionFeedback(`Ticket #${workItemId} bloccato. Vista aggiornata.`);
+    showActionFeedback(`Ticket #${workItemId} blocked. View updated.`);
   } catch (err) {
-    showActionFeedback(`Impossibile bloccare il ticket #${workItemId}: ${err.message}`, true);
-    await showError(`Impossibile bloccare il ticket #${workItemId}: ${err.message}`);
+    showActionFeedback(`Unable to block ticket #${workItemId}: ${err.message}`, true);
+    await showError(`Unable to block ticket #${workItemId}: ${err.message}`);
   }
   await refreshAfterTicketMutation();
 }
@@ -341,7 +341,7 @@ function ensureTicketLane(list, stageId) {
   description.textContent = stage.description;
   const count = document.createElement("span");
   count.className = "ticket-lane-count";
-  count.setAttribute("aria-label", "Numero di ticket");
+  count.setAttribute("aria-label", "Number of tickets");
   header.append(heading, count, description);
 
   const cards = document.createElement("div");
@@ -363,7 +363,7 @@ function updateTicketLaneCounts(list) {
     if (cards.length === 0 && !emptyState) {
       emptyState = document.createElement("p");
       emptyState.className = "ticket-lane-empty";
-      emptyState.textContent = "Nessun ticket in questa fase";
+      emptyState.textContent = "No tickets at this stage";
       lane.querySelector(".ticket-lane-cards").append(emptyState);
     } else if (cards.length > 0 && emptyState) {
       emptyState.remove();
@@ -379,7 +379,7 @@ function formatTicketUpdate(timestamp) {
 }
 
 function updateTicketCardMetadata(card, info) {
-  card.querySelector(".ticket-card-title").textContent = info.title || "(senza titolo)";
+  card.querySelector(".ticket-card-title").textContent = info.title || "(untitled)";
   card.querySelector(".ticket-card-points").textContent =
     `Story points: ${info.story_points == null ? "n/d" : info.story_points}`;
 }
@@ -396,7 +396,7 @@ function ensureTicketMetadata(workItemId, card) {
     request = fetchJson(`/api/work-item/${workItemId}`)
     .then((info) => {
       const metadata = {
-        title: info.title || "(senza titolo)",
+        title: info.title || "(untitled)",
         story_points: info.story_points,
       };
       ticketInfoCache.set(key, metadata);
@@ -433,7 +433,7 @@ function renderTicketCard(ticket) {
 
   const title = document.createElement("div");
   title.className = "ticket-card-title";
-  title.textContent = "Caricamento titolo...";
+  title.textContent = "Loading title...";
 
   const footer = document.createElement("div");
   footer.className = "ticket-card-footer";
@@ -462,7 +462,7 @@ function updateTicketCard(card, ticket) {
   badge.className = statusBadgeClass(ticket.action);
   badge.textContent = actionLabel(ticket.action);
   card.querySelector(".ticket-card-updated").textContent =
-    `Aggiornato: ${formatTicketUpdate(ticket.ts)}`;
+    `Updated: ${formatTicketUpdate(ticket.ts)}`;
   card.setAttribute("aria-label", `Ticket #${ticket.work_item_id}: ${actionLabel(ticket.action)}`);
   card.dataset.action = ticket.action;
   card.dataset.ts = ticket.ts || "";
@@ -529,8 +529,8 @@ function updateTicketAttentionBadges(warningCount, errorCount) {
   const errorBadge = document.getElementById("ticket-error-badge");
   warningBadge.hidden = warningCount === 0;
   errorBadge.hidden = errorCount === 0;
-  warningBadge.title = `${warningCount} ticket richiedono attenzione`;
-  errorBadge.title = `${errorCount} ticket bloccati o in errore`;
+  warningBadge.title = `${warningCount} tickets require attention`;
+  errorBadge.title = `${errorCount} tickets are blocked or have errors`;
 }
 
 function applyTicketTabFilter() {
@@ -666,14 +666,14 @@ function renderWorkflowChat(messages) {
   const container = document.getElementById("workflow-chat-messages");
   container.textContent = "";
   if (messages.length === 0) {
-    container.textContent = "Nessuna modifica richiesta. Il workflow predefinito usa Copilot con Claude come fallback.";
+    container.textContent = "No changes requested. The default workflow uses Copilot with Claude as a fallback.";
     return;
   }
   for (const message of messages) {
     const item = document.createElement("article");
     item.className = `workflow-chat-message ${message.role}`;
     const author = document.createElement("strong");
-    author.textContent = message.role === "user" ? "Tu" : "Workflow";
+    author.textContent = message.role === "user" ? "You" : "Workflow";
     const content = document.createElement("p");
     content.textContent = message.content;
     item.append(author, content);
@@ -703,7 +703,7 @@ async function loadWorkflow() {
     hint.textContent = "";
     hint.classList.remove("error");
   } catch (err) {
-    hint.textContent = `Impossibile caricare il workflow: ${err.message}`;
+    hint.textContent = `Unable to load workflow: ${err.message}`;
     hint.classList.add("error");
   }
 }
@@ -721,11 +721,11 @@ async function saveWorkflow() {
         azure_communication: document.getElementById("workflow-azure").value,
       }),
     });
-    hint.textContent = "Workflow salvato.";
+    hint.textContent = "Workflow saved.";
     hint.classList.remove("error");
     await loadWorkflow();
   } catch (err) {
-    hint.textContent = `Salvataggio non riuscito: ${err.message}`;
+    hint.textContent = `Save failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     button.disabled = false;
@@ -739,7 +739,7 @@ async function sendWorkflowChat() {
   const text = input.value.trim();
   if (!text) return;
   button.disabled = true;
-  hint.textContent = "Aggiornamento workflow...";
+  hint.textContent = "Updating workflow...";
   hint.classList.remove("error");
   try {
     renderWorkflow(await fetchJson("/api/workflow/chat", {
@@ -748,9 +748,9 @@ async function sendWorkflowChat() {
       body: JSON.stringify({ text }),
     }));
     input.value = "";
-    hint.textContent = "Workflow aggiornato.";
+    hint.textContent = "Workflow updated.";
   } catch (err) {
-    hint.textContent = `Aggiornamento non riuscito: ${err.message}`;
+    hint.textContent = `Update failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     button.disabled = false;
@@ -769,7 +769,7 @@ async function loadNotifications(silent = false) {
   const container = document.getElementById("notifications-list");
   container.innerHTML = "";
   if (data.items.length === 0) {
-    container.textContent = "Nessuna notifica.";
+    container.textContent = "No notifications.";
     return;
   }
   for (const notification of data.items) {
@@ -784,7 +784,7 @@ async function loadNotifications(silent = false) {
     item.appendChild(content);
     if (!notification.read_at) {
       const button = document.createElement("button");
-      button.textContent = "Segna come letto";
+      button.textContent = "Mark as read";
       button.addEventListener("click", async () => {
         await fetchJson(`/api/notifications/${notification.id}/read`, { method: "POST" });
         await loadNotifications();
@@ -809,9 +809,9 @@ function formatCost(cost) {
 function renderDashboard(data) {
   document.getElementById("dashboard-completed-count").textContent = data.summary.completed_count;
   document.getElementById("dashboard-story-points").textContent =
-    data.summary.story_points.toLocaleString("it-IT");
+    data.summary.story_points.toLocaleString("en-US");
   document.getElementById("dashboard-tokens").textContent =
-    data.summary.total_tokens.toLocaleString("it-IT");
+    data.summary.total_tokens.toLocaleString("en-US");
   document.getElementById("dashboard-cost").textContent = formatCost(data.summary.cost_usd);
 
   const body = document.getElementById("dashboard-body");
@@ -821,7 +821,7 @@ function renderDashboard(data) {
     const cell = document.createElement("td");
     cell.colSpan = 6;
     cell.className = "hint";
-    cell.textContent = "Nessun PBI completato nel periodo selezionato.";
+    cell.textContent = "No PBIs completed in the selected period.";
     row.appendChild(cell);
     body.appendChild(row);
     return;
@@ -836,7 +836,7 @@ function renderDashboard(data) {
         textContent: item.story_points == null ? "n/d" : item.story_points,
       }),
       Object.assign(document.createElement("td"), {
-        textContent: item.total_tokens.toLocaleString("it-IT"),
+        textContent: item.total_tokens.toLocaleString("en-US"),
       }),
       Object.assign(document.createElement("td"), { textContent: formatCost(item.cost_usd) }),
       Object.assign(document.createElement("td"), { textContent: formatTime(item.completed_at) }),
@@ -850,7 +850,7 @@ function renderAttention(items) {
   const container = document.getElementById("attention-list");
   container.innerHTML = "";
   if (items.length === 0) {
-    container.textContent = "Nessuna azione richiesta in questo momento.";
+    container.textContent = "No action required at this time.";
     return;
   }
   for (const item of items) {
@@ -879,7 +879,7 @@ async function loadDashboard() {
 
   dashboardLoading = true;
   document.getElementById("dashboard-apply-btn").disabled = true;
-  hint.textContent = "Caricamento metriche...";
+  hint.textContent = "Loading metrics...";
   hint.classList.remove("error");
   try {
     const [data, attention] = await Promise.all([
@@ -890,7 +890,7 @@ async function loadDashboard() {
     renderAttention(attention);
     hint.textContent = "";
   } catch (err) {
-    hint.textContent = `Impossibile caricare la dashboard: ${err.message}`;
+    hint.textContent = `Unable to load dashboard: ${err.message}`;
     hint.classList.add("error");
   } finally {
     dashboardLoading = false;
@@ -925,7 +925,7 @@ async function loadSettings() {
     // Python ancora in esecuzione non include il nuovo endpoint di budget.
     document.getElementById("settings-token-budget").hidden = true;
     document.getElementById("settings-token-budget-hint").textContent =
-      "Riavvia la dashboard per visualizzare il budget token.";
+      "Restart the dashboard to view the token budget.";
   }
   await checkAppUpdate();
 }
@@ -943,17 +943,17 @@ function showOnboardingForMissingField(fields) {
 
   const field = onboardingFields[0];
   document.getElementById("onboarding-message").textContent =
-    `Primo avvio: passo ${fields.filter((item) => item.required).length - onboardingFields.length + 1} di ${fields.filter((item) => item.required).length}.`;
+    `First launch: step ${fields.filter((item) => item.required).length - onboardingFields.length + 1} of ${fields.filter((item) => item.required).length}.`;
   const label = document.getElementById("onboarding-label");
   label.textContent = field.label;
   const input = document.getElementById("onboarding-input");
   input.type = field.secret ? "password" : "text";
   input.value = "";
-  input.placeholder = field.secret ? "Inserisci un valore sicuro" : "";
+  input.placeholder = field.secret ? "Enter a secure value" : "";
   input.required = true;
   input.dataset.settingsKey = field.key;
   document.getElementById("onboarding-hint").textContent =
-    "Questa impostazione viene salvata solo nel tuo profilo Windows.";
+    "This setting is saved only in your Windows profile.";
   if (!dialog.open) dialog.showModal();
   input.focus();
 }
@@ -965,7 +965,7 @@ async function saveOnboardingField(event) {
   const hint = document.getElementById("onboarding-hint");
   const value = input.value.trim();
   if (!value) {
-    hint.textContent = "Inserisci un valore prima di continuare.";
+    hint.textContent = "Enter a value before continuing.";
     hint.classList.add("error");
     return;
   }
@@ -973,7 +973,7 @@ async function saveOnboardingField(event) {
   onboardingSubmitting = true;
   document.getElementById("onboarding-submit").disabled = true;
   hint.classList.remove("error");
-  hint.textContent = "Salvataggio...";
+  hint.textContent = "Saving...";
   try {
     const fields = await fetchJson("/api/settings", {
       method: "POST",
@@ -987,7 +987,7 @@ async function saveOnboardingField(event) {
       await Promise.all([loadDashboard(), refreshAutomaticIngestStatus(), tick()]);
     }
   } catch (err) {
-    hint.textContent = `Salvataggio non riuscito: ${err.message}`;
+    hint.textContent = `Save failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     onboardingSubmitting = false;
@@ -1000,28 +1000,57 @@ let appReleaseUrl = "";
 async function checkAppUpdate() {
   const hint = document.getElementById("app-version-hint");
   const checkButton = document.getElementById("check-app-update-btn");
+  const installButton = document.getElementById("install-app-update-btn");
   const releaseButton = document.getElementById("open-app-release-btn");
   checkButton.disabled = true;
+  installButton.hidden = true;
   releaseButton.hidden = true;
   hint.classList.remove("error");
-  hint.textContent = "Controllo aggiornamenti...";
+  hint.textContent = "Checking for updates...";
   try {
     const update = await fetchJson("/api/app-update");
     appReleaseUrl = update.release_url;
     if (update.update_available) {
-      hint.textContent = `Versione installata: ${update.current_version}. È disponibile ${update.latest_version}.`;
+      hint.textContent = `Installed version: ${update.current_version}. Version ${update.latest_version} is available.`;
       releaseButton.hidden = !appReleaseUrl;
+      installButton.hidden = !(update.installer_available && window.pywebview?.api?.install_pending_update);
     } else if (!update.latest_version) {
-      hint.textContent = `Versione installata: ${update.current_version}. Non è ancora stata pubblicata una Release GitHub.`;
+      hint.textContent = `Installed version: ${update.current_version}. No GitHub Release has been published yet.`;
     } else {
-      hint.textContent = `Versione installata: ${update.current_version}. Hai già l'ultima versione (${update.latest_version}).`;
+      hint.textContent = `Installed version: ${update.current_version}. You already have the latest version (${update.latest_version}).`;
     }
   } catch (err) {
     appReleaseUrl = "";
-    hint.textContent = `Impossibile controllare gli aggiornamenti: ${err.message}`;
+    hint.textContent = `Unable to check for updates: ${err.message}`;
     hint.classList.add("error");
   } finally {
     checkButton.disabled = false;
+  }
+}
+
+async function installAppUpdate() {
+  const hint = document.getElementById("app-version-hint");
+  const button = document.getElementById("install-app-update-btn");
+  if (!window.pywebview?.api?.install_pending_update) {
+    hint.textContent = "Direct installation is available only in the installed desktop app.";
+    hint.classList.add("error");
+    return;
+  }
+  if (!await confirmAction(
+    "Download the verified update, close the app, and install it now?",
+    "Download and install"
+  )) return;
+  button.disabled = true;
+  hint.classList.remove("error");
+  hint.textContent = "Downloading update and verifying SHA-256...";
+  try {
+    const update = await fetchJson("/api/app-update/download", { method: "POST" });
+    hint.textContent = `Installer ${update.installer_name} verified. Closing the app to update...`;
+    await window.pywebview.api.install_pending_update();
+  } catch (err) {
+    hint.textContent = `Update failed: ${err.message}`;
+    hint.classList.add("error");
+    button.disabled = false;
   }
 }
 
@@ -1034,14 +1063,14 @@ function renderTokenBudget(budget) {
   const hint = document.getElementById("settings-token-budget-hint");
   box.hidden = false;
   document.getElementById("settings-token-budget-limit").textContent =
-    budget.limit_tokens === null ? "Non impostato" : budget.limit_tokens.toLocaleString("it-IT");
+    budget.limit_tokens === null ? "Not set" : budget.limit_tokens.toLocaleString("en-US");
   document.getElementById("settings-token-budget-used").textContent =
-    budget.used_tokens.toLocaleString("it-IT");
+    budget.used_tokens.toLocaleString("en-US");
   document.getElementById("settings-token-budget-remaining").textContent =
-    budget.remaining_tokens === null ? "Illimitati" : budget.remaining_tokens.toLocaleString("it-IT");
+    budget.remaining_tokens === null ? "Unlimited" : budget.remaining_tokens.toLocaleString("en-US");
   hint.textContent = budget.is_exhausted
-    ? "Budget esaurito: i nuovi run vengono bloccati finché non aumenti il limite."
-    : "Il consumo è aggiornato dai provider che restituiscono le metriche token (Claude SDK).";
+    ? "Budget exhausted: new runs are blocked until you increase the limit."
+    : "Usage is updated by providers that return token metrics (Claude SDK).";
   hint.classList.toggle("error", budget.is_exhausted);
 }
 
@@ -1077,7 +1106,7 @@ function renderSettingsForm(fields) {
       input.type = field.secret ? "password" : "text";
     }
     if (field.secret) {
-      input.placeholder = field.is_set ? `Impostato (${field.value}) — lascia vuoto per non modificare` : "Non impostato";
+      input.placeholder = field.is_set ? `Set (${field.value}) — leave empty to keep unchanged` : "Not set";
     } else if (field.control !== "select") {
       input.value = field.value;
     }
@@ -1088,11 +1117,11 @@ function renderSettingsForm(fields) {
       externalAgentHelp = document.createElement("div");
       externalAgentHelp.className = "external-agent-help";
       externalAgentHelp.innerHTML = [
-        "<strong>Come funziona</strong>",
-        "Il dashboard invia il prompt allo standard input del comando ed usa il suo standard output come risposta dell'agente.",
-        "<code>claude -p</code> e' un esempio se Claude CLI e' installato e autenticato, ma usa comunque il tuo account e i token Claude.",
-        "Per evitare il budget Claude, configura qui il comando di un CLI diverso, gia' installato e autenticato, che legge stdin e stampa la risposta su stdout.",
-        "Il comando riceve anche le variabili <code>AGENT_MODEL</code>, <code>AGENT_ALLOWED_TOOLS</code> e <code>AGENT_MAX_OUTPUT_TOKENS</code>.",
+        "<strong>How it works</strong>",
+        "The dashboard sends the prompt to the command's standard input and uses its standard output as the agent's response.",
+        "<code>claude -p</code> is an example if Claude CLI is installed and authenticated, but it still uses your Claude account and tokens.",
+        "To avoid the Claude budget, configure a different installed and authenticated CLI command here that reads stdin and writes its response to stdout.",
+        "The command also receives the <code>AGENT_MODEL</code>, <code>AGENT_ALLOWED_TOOLS</code>, and <code>AGENT_MAX_OUTPUT_TOKENS</code> variables.",
       ].map((text) => `<p>${text}</p>`).join("");
       form.appendChild(externalAgentHelp);
     }
@@ -1106,18 +1135,18 @@ function renderSettingsForm(fields) {
     externalAgentHelp.hidden = !usesExternalAgent && provider.value !== "copilot_cli";
     if (provider.value === "copilot_cli") {
       externalAgentHelp.innerHTML = [
-        "<strong>GitHub Copilot CLI (sperimentale)</strong>",
-        "Installa con <code>winget install GitHub.Copilot</code> e autentica con <code>copilot login</code>.",
-        "Il CLI e' al momento interattivo: la dashboard non avvia piani o modifiche automatiche, per evitare run bloccati in attesa di approvazione.",
-        "Puoi usarlo manualmente dal repository con <code>copilot</code>.",
+        "<strong>GitHub Copilot CLI (experimental)</strong>",
+        "Install it with <code>winget install GitHub.Copilot</code> and authenticate with <code>copilot login</code>.",
+        "The CLI is currently interactive: the dashboard does not start automatic plans or changes, preventing runs from blocking while awaiting approval.",
+        "You can use it manually from the repository with <code>copilot</code>.",
       ].map((text) => `<p>${text}</p>`).join("");
     } else {
       externalAgentHelp.innerHTML = [
-        "<strong>Come funziona</strong>",
-        "Il dashboard invia il prompt allo standard input del comando ed usa il suo standard output come risposta dell'agente.",
-        "<code>claude -p</code> e' un esempio se Claude CLI e' installato e autenticato, ma usa comunque il tuo account e i token Claude.",
-        "Per evitare il budget Claude, configura qui il comando di un CLI diverso, gia' installato e autenticato, che legge stdin e stampa la risposta su stdout.",
-        "Il comando riceve anche le variabili <code>AGENT_MODEL</code>, <code>AGENT_ALLOWED_TOOLS</code> e <code>AGENT_MAX_OUTPUT_TOKENS</code>.",
+        "<strong>How it works</strong>",
+        "The dashboard sends the prompt to the command's standard input and uses its standard output as the agent's response.",
+        "<code>claude -p</code> is an example if Claude CLI is installed and authenticated, but it still uses your Claude account and tokens.",
+        "To avoid the Claude budget, configure a different installed and authenticated CLI command here that reads stdin and writes its response to stdout.",
+        "The command also receives the <code>AGENT_MODEL</code>, <code>AGENT_ALLOWED_TOOLS</code>, and <code>AGENT_MAX_OUTPUT_TOKENS</code> variables.",
       ].map((text) => `<p>${text}</p>`).join("");
     }
   };
@@ -1138,7 +1167,7 @@ async function saveSettings(e) {
 
   saveBtn.disabled = true;
   hint.classList.remove("error");
-  hint.textContent = "Salvataggio...";
+  hint.textContent = "Saving...";
   try {
     const fields = await fetchJson("/api/settings", {
       method: "POST",
@@ -1146,7 +1175,7 @@ async function saveSettings(e) {
       body: JSON.stringify({ values }),
     });
     renderSettingsForm(fields);
-    hint.textContent = "Impostazioni salvate.";
+    hint.textContent = "Settings saved.";
     await loadConfig();
   } catch (err) {
     hint.textContent = err.message;
@@ -1248,7 +1277,7 @@ async function loadWorkItemInfo(workItemId) {
     document.getElementById("detail-title").textContent = info.title;
     document.getElementById("detail-story-points").textContent =
       info.story_points != null ? `Story points: ${info.story_points}` : "Story points: n/d";
-    document.getElementById("detail-description").textContent = info.description || "(nessuna descrizione)";
+    document.getElementById("detail-description").textContent = info.description || "(no description)";
     document.getElementById("detail-acceptance").textContent = info.acceptance_criteria
       ? `Acceptance criteria:\n${info.acceptance_criteria}` : "";
 
@@ -1259,14 +1288,14 @@ async function loadWorkItemInfo(workItemId) {
       a.href = url;
       a.target = "_blank";
       a.className = "ticket-link";
-      a.textContent = `Design su Figma: ${url}`;
+      a.textContent = `Design in Figma: ${url}`;
       figmaEl.appendChild(a);
       figmaEl.appendChild(document.createElement("br"));
     }
   } catch (err) {
     document.getElementById("detail-title").textContent = `Ticket #${workItemId}`;
     document.getElementById("detail-story-points").textContent = "";
-    document.getElementById("detail-description").textContent = `Impossibile caricare i dettagli: ${err.message}`;
+    document.getElementById("detail-description").textContent = `Unable to load details: ${err.message}`;
     document.getElementById("detail-acceptance").textContent = "";
     document.getElementById("detail-figma-links").textContent = "";
   } finally {
@@ -1293,15 +1322,15 @@ function renderQuality(quality) {
   autoCompleteBtn.disabled = !passed;
 
   if (!quality) {
-    report.textContent = "Esegui le verifiche tecniche obbligatorie prima di creare la PR.";
+    report.textContent = "Run the required technical checks before creating the PR.";
     return;
   }
   const labels = {
-    passed: "Verifiche superate. Puoi creare la PR.",
-    failed: "Almeno una verifica non e' riuscita: correggi il branch e riesegui.",
-    unavailable: "Il repository non dichiara comandi di verifica rilevabili.",
+    passed: "Checks passed. You can create the PR.",
+    failed: "At least one check failed: fix the branch and run them again.",
+    unavailable: "The repository declares no detectable check commands.",
   };
-  report.textContent = `${labels[quality.status] || "Stato verifiche non disponibile."}\nCommit verificato: ${quality.commit_sha.slice(0, 12)}`;
+  report.textContent = `${labels[quality.status] || "Check status unavailable."}\nVerified commit: ${quality.commit_sha.slice(0, 12)}`;
   for (const check of quality.checks) {
     const line = document.createElement("div");
     line.textContent = `${check.status === "passed" ? "✓" : "✗"} ${check.name}: ${check.command} (${check.duration_seconds}s)`;
@@ -1314,7 +1343,7 @@ async function loadQuality(workItemId) {
     const quality = await fetchJson(`/api/quality/${workItemId}`);
     renderQuality(quality);
   } catch (err) {
-    document.getElementById("quality-report").textContent = `Impossibile leggere le verifiche: ${err.message}`;
+    document.getElementById("quality-report").textContent = `Unable to read checks: ${err.message}`;
   }
 }
 
@@ -1324,15 +1353,15 @@ async function runQualityChecks() {
   const report = document.getElementById("quality-report");
   qualityRunning = true;
   button.disabled = true;
-  report.textContent = "Verifiche locali in corso: non viene usata alcuna IA...";
+  report.textContent = "Local checks in progress: no AI is being used...";
   try {
     const quality = await fetchJson(`/api/quality/${currentView.workItemId}`, { method: "POST" });
     renderQuality(quality);
-    showActionFeedback("Verifiche completate. Vista aggiornata.");
+    showActionFeedback("Checks completed. View updated.");
     await refreshAfterTicketMutation();
   } catch (err) {
-    report.textContent = `Verifiche non eseguibili: ${err.message}`;
-    showActionFeedback(`Verifiche non riuscite: ${err.message}`, true);
+    report.textContent = `Unable to run checks: ${err.message}`;
+    showActionFeedback(`Checks failed: ${err.message}`, true);
   } finally {
     qualityRunning = false;
     button.disabled = false;
@@ -1356,7 +1385,7 @@ async function loadTicketChat(workItemId) {
     const messages = await fetchJson(`/api/ticket-chat/${workItemId}`);
     renderTicketChat(messages);
   } catch (err) {
-    container.textContent = `Impossibile caricare la chat: ${err.message}`;
+    container.textContent = `Unable to load chat: ${err.message}`;
   }
 }
 
@@ -1364,14 +1393,14 @@ function renderTicketChat(messages) {
   const container = document.getElementById("ticket-chat-messages");
   container.innerHTML = "";
   if (messages.length === 0) {
-    container.textContent = "Nessun messaggio: descrivi cosa vuoi fare dopo su questo ticket.";
+    container.textContent = "No messages: describe what you want to do next for this ticket.";
     return;
   }
   for (const message of messages) {
     const item = document.createElement("div");
     item.className = "ticket-timeline-item";
     const head = document.createElement("div");
-    const author = message.role === "user" ? "Tu" : "Agente";
+    const author = message.role === "user" ? "You" : "Agent";
     head.textContent = `${author} — ${formatTime(message.created_at)}`;
     const content = document.createElement("div");
     content.className = "detail";
@@ -1389,7 +1418,7 @@ async function sendTicketChatMessage() {
   ticketChatSubmitting = true;
   input.disabled = true;
   document.getElementById("ticket-chat-send-btn").disabled = true;
-  hint.textContent = "Analisi e piano in corso...";
+  hint.textContent = "Analysis and planning in progress...";
   hint.classList.remove("error");
   try {
     const result = await fetchJson(`/api/ticket-chat/${currentView.workItemId}`, {
@@ -1399,13 +1428,13 @@ async function sendTicketChatMessage() {
     });
     input.value = "";
     renderTicketChat(result.messages);
-    hint.textContent = "Piano pronto.";
-    showActionFeedback("Piano pronto. Vista aggiornata.");
+    hint.textContent = "Plan ready.";
+    showActionFeedback("Plan ready. View updated.");
     await refreshAfterTicketMutation();
   } catch (err) {
-    hint.textContent = `Invio non riuscito: ${err.message}`;
+    hint.textContent = `Send failed: ${err.message}`;
     hint.classList.add("error");
-    showActionFeedback(`Invio non riuscito: ${err.message}`, true);
+    showActionFeedback(`Send failed: ${err.message}`, true);
   } finally {
     ticketChatSubmitting = false;
     input.disabled = false;
@@ -1417,18 +1446,18 @@ async function sendTicketChatMessage() {
 async function restartTicketFromScratch() {
   const workItemId = currentView.workItemId;
   const confirmed = await confirmAction(
-    `Ripartire da zero con il ticket #${workItemId}? Verranno rimossi i tag del ciclo precedente e cancellato il branch locale associato.`,
-    "Riparti da zero"
+    `Start over for ticket #${workItemId}? Tags from the previous cycle and the associated local branch will be removed.`,
+    "Start over"
   );
   if (!confirmed) return;
   const button = document.getElementById("restart-ticket-btn");
   const hint = document.getElementById("ticket-chat-hint");
   button.disabled = true;
-  hint.textContent = "Azzeramento e nuova pianificazione in avvio...";
+  hint.textContent = "Reset and new planning starting...";
   hint.classList.remove("error");
   try {
     await fetchJson(`/api/restart-from-scratch/${workItemId}`, { method: "POST" });
-    hint.textContent = "Ticket azzerato: l'agente sta generando un nuovo piano.";
+    hint.textContent = "Ticket reset: the agent is generating a new plan.";
     await Promise.all([
       refreshStatus(true),
       refreshAutomaticIngestStatus(true),
@@ -1436,9 +1465,9 @@ async function restartTicketFromScratch() {
       refreshHistory(true),
     ]);
     await loadNotifications(true);
-    showActionFeedback("Ticket azzerato: la nuova pianificazione è in corso.");
+    showActionFeedback("Ticket reset: new planning is in progress.");
   } catch (err) {
-    const message = `Impossibile ripartire da zero: ${err.message}`;
+    const message = `Unable to start over: ${err.message}`;
     hint.textContent = message;
     hint.classList.add("error");
     showActionFeedback(message, true);
@@ -1457,7 +1486,7 @@ async function renderDetailTimeline(workItemId, containerEl, silent = false) {
   const chronological = [...events].reverse();
 
   if (chronological.length === 0) {
-    containerEl.textContent = "Nessun evento registrato.";
+    containerEl.textContent = "No events recorded.";
     return;
   }
   if (containerEl.children.length === 0) {
@@ -1517,7 +1546,7 @@ function updateDetailStage(ticket) {
 
   if (stage === "verify") {
     document.getElementById("verify-summary").textContent =
-      ticket.detail || "Nessun riassunto tecnico disponibile per questo ticket.";
+      ticket.detail || "No technical summary is available for this ticket.";
   }
   if (stage === "live") {
     updateCorrectionUI();
@@ -1546,7 +1575,7 @@ function updateCorrectionUI() {
   input.disabled = !active || correctionSubmitting;
   btn.disabled = !active || correctionSubmitting || !input.value.trim();
   if (!correctionSubmitting) {
-    hint.textContent = active ? "" : "Nessun run attivo su questo ticket in questo momento.";
+    hint.textContent = active ? "" : "No run is active for this ticket at the moment.";
     hint.classList.remove("error");
   }
 }
@@ -1565,11 +1594,11 @@ async function sendCorrection() {
       body: JSON.stringify({ text }),
     });
     input.value = "";
-    hint.textContent = "Correzione inviata.";
+    hint.textContent = "Correction sent.";
     hint.classList.remove("error");
   } catch (err) {
     // il run potrebbe essere terminato nel frattempo: non svuotare il testo scritto
-    hint.textContent = `Invio non riuscito: ${err.message}`;
+    hint.textContent = `Send failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     correctionSubmitting = false;
@@ -1589,28 +1618,28 @@ async function savePlan() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: input.value }),
     });
-    hint.textContent = "Modifiche salvate.";
+    hint.textContent = "Changes saved.";
     hint.classList.remove("error");
   } catch (err) {
-    hint.textContent = `Salvataggio non riuscito: ${err.message}`;
+    hint.textContent = `Save failed: ${err.message}`;
     hint.classList.add("error");
   }
 }
 
 async function approvePlan() {
-  if (!await confirmAction("Approvare questo piano e avviare l'implementazione?", "Approva e avvia")) return;
+  if (!await confirmAction("Approve this plan and start implementation?", "Approve and start")) return;
   const hint = document.getElementById("plan-hint");
   try {
     await savePlan();
     await fetchJson(`/api/plan/${currentView.workItemId}/approve`, { method: "POST" });
-    hint.textContent = "Piano approvato, implementazione in corso.";
+    hint.textContent = "Plan approved, implementation in progress.";
     hint.classList.remove("error");
-    showActionFeedback("Piano approvato: implementazione avviata.");
+    showActionFeedback("Plan approved: implementation started.");
     await refreshAfterTicketMutation();
   } catch (err) {
-    hint.textContent = `Approvazione non riuscita: ${err.message}`;
+    hint.textContent = `Approval failed: ${err.message}`;
     hint.classList.add("error");
-    showActionFeedback(`Approvazione non riuscita: ${err.message}`, true);
+    showActionFeedback(`Approval failed: ${err.message}`, true);
   }
 }
 
@@ -1637,10 +1666,10 @@ async function sendFix() {
       body: JSON.stringify({ text }),
     });
     input.value = "";
-    hint.textContent = "Richiesta di correzione inviata.";
+    hint.textContent = "Fix request sent.";
     hint.classList.remove("error");
   } catch (err) {
-    hint.textContent = `Invio non riuscito: ${err.message}`;
+    hint.textContent = `Send failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     fixSubmitting = false;
@@ -1654,12 +1683,12 @@ async function startReviewCode() {
   if (reviewRunning) return;
   reviewRunning = true;
   btn.disabled = true;
-  reportEl.textContent = "Review in corso, puo' richiedere qualche minuto...";
+  reportEl.textContent = "Review in progress; this may take a few minutes...";
   try {
     const result = await fetchJson(`/api/review-code/${currentView.workItemId}`, { method: "POST" });
-    reportEl.textContent = result.review || "(nessun contenuto restituito)";
+    reportEl.textContent = result.review || "(no content returned)";
   } catch (err) {
-    reportEl.textContent = `Review non riuscita: ${err.message}`;
+    reportEl.textContent = `Review failed: ${err.message}`;
   } finally {
     reviewRunning = false;
     btn.disabled = false;
@@ -1669,26 +1698,26 @@ async function startReviewCode() {
 async function closeTicket() {
   const workItemId = currentView.workItemId;
   if (!await confirmAction(
-    `Chiudere il ticket #${workItemId}? Verra' spostato in "Completed" e ingest/review non lo toccheranno piu' (viene anche bloccato).`,
-    "Chiudi ticket"
+    `Close ticket #${workItemId}? It will be moved to "Completed" and ingest/review will no longer process it (it will also be blocked).`,
+    "Close ticket"
   )) {
     return;
   }
   try {
     await fetchJson(`/api/close/${workItemId}`, { method: "POST" });
-    showActionFeedback(`Ticket #${workItemId} chiuso e spostato in Completed.`);
+    showActionFeedback(`Ticket #${workItemId} closed and moved to Completed.`);
     await refreshAfterTicketMutation();
   } catch (err) {
-    showActionFeedback(`Chiusura non riuscita: ${err.message}`, true);
-    await showError(`Impossibile chiudere il ticket #${workItemId}: ${err.message}`);
+    showActionFeedback(`Close failed: ${err.message}`, true);
+    await showError(`Unable to close ticket #${workItemId}: ${err.message}`);
   }
 }
 
 async function deleteTicket() {
   const workItemId = currentView.workItemId;
   const confirmed = await confirmAction(
-    `Eliminare il ticket #${workItemId}? Verrà spostato nel cestino di Azure Boards e non sarà più lavorato dall'agente.`,
-    "Elimina ticket"
+    `Delete ticket #${workItemId}? It will be moved to the Azure Boards recycle bin and will no longer be processed by the agent.`,
+    "Delete ticket"
   );
   if (!confirmed) return;
 
@@ -1698,14 +1727,14 @@ async function deleteTicket() {
     await fetchJson(
       `/api/tickets/${workItemId}`,
       { method: "DELETE" },
-      { loadingLabel: "Eliminazione ticket..." }
+      { loadingLabel: "Deleting ticket..." }
     );
     ticketInfoCache.delete(String(workItemId));
-    showActionFeedback(`Ticket #${workItemId} spostato nel cestino Azure Boards.`);
+    showActionFeedback(`Ticket #${workItemId} moved to the Azure Boards recycle bin.`);
     await refreshAfterTicketMutation();
     showListView();
   } catch (err) {
-    const message = `Impossibile eliminare il ticket #${workItemId}: ${err.message}`;
+    const message = `Unable to delete ticket #${workItemId}: ${err.message}`;
     showActionFeedback(message, true);
     await showError(message);
   } finally {
@@ -1721,14 +1750,14 @@ async function reopenTicket() {
   reopenSubmitting = true;
   try {
     await fetchJson(`/api/reopen/${currentView.workItemId}`, { method: "POST" });
-    hint.textContent = "Ticket riaperto.";
+    hint.textContent = "Ticket reopened.";
     hint.classList.remove("error");
-    showActionFeedback("Ticket riaperto. Vista aggiornata.");
+    showActionFeedback("Ticket reopened. View updated.");
     await refreshAfterTicketMutation();
   } catch (err) {
-    hint.textContent = `Impossibile riaprire: ${err.message}`;
+    hint.textContent = `Unable to reopen: ${err.message}`;
     hint.classList.add("error");
-    showActionFeedback(`Riapertura non riuscita: ${err.message}`, true);
+    showActionFeedback(`Reopen failed: ${err.message}`, true);
   } finally {
     reopenSubmitting = false;
   }
@@ -1744,16 +1773,16 @@ async function startCheckPr() {
   if (checkPrRunning) return;
   checkPrRunning = true;
   btn.disabled = true;
-  resultEl.textContent = "Controllo in corso (le tre persona junior/senior/tech-lead), puo' richiedere qualche minuto...";
+  resultEl.textContent = "Check in progress (the three junior/senior/tech-lead personas); this may take a few minutes...";
   try {
     const result = await fetchJson(`/api/check-pr/${currentView.workItemId}`, { method: "POST" });
     let text = result.summary ? `${result.summary}\n\n` : "";
-    text += `${result.posted} commenti pubblicati sulla PR`;
-    if (result.failed) text += `, ${result.failed} non pubblicabili (manca file/riga)`;
+    text += `${result.posted} comments posted on the PR`;
+    if (result.failed) text += `, ${result.failed} could not be posted (missing file/line)`;
     text += ".";
     resultEl.textContent = text;
   } catch (err) {
-    resultEl.textContent = `Controllo non riuscito: ${err.message}`;
+    resultEl.textContent = `Check failed: ${err.message}`;
   } finally {
     checkPrRunning = false;
     btn.disabled = false;
@@ -1773,16 +1802,16 @@ async function loadPrComments(force = false) {
   const hint = document.getElementById("pr-review-hint");
   if (prCommentsLoading || (!force && prCommentsLoadedForWorkItem === currentView.workItemId)) return;
   prCommentsLoading = true;
-  hint.textContent = "Caricamento commenti...";
+  hint.textContent = "Loading comments...";
   hint.classList.remove("error");
   try {
     const comments = await fetchJson(`/api/pr-comments/${currentView.workItemId}`);
     await loadPrCommentBatch();
     renderPrComments(comments);
     prCommentsLoadedForWorkItem = currentView.workItemId;
-    hint.textContent = comments.length ? `${comments.length} commenti da valutare.` : "";
+    hint.textContent = comments.length ? `${comments.length} comments to evaluate.` : "";
   } catch (err) {
-    hint.textContent = `Impossibile leggere i commenti: ${err.message}`;
+    hint.textContent = `Unable to read comments: ${err.message}`;
     hint.classList.add("error");
   } finally {
     prCommentsLoading = false;
@@ -1795,7 +1824,7 @@ async function loadPrCommentBatch() {
     const batch = await fetchJson(`/api/pr-comment-batch/${currentView.workItemId}`);
     renderPrCommentBatch(batch);
   } catch (err) {
-    if (!err.message.includes("Nessun piano")) throw err;
+    if (!err.message.includes("No fix plan")) throw err;
     currentPrCommentBatch = null;
     box.hidden = selectedPrCommentIds.size === 0;
     updatePrCommentBatchActions();
@@ -1806,7 +1835,7 @@ function renderPrComments(comments) {
   const container = document.getElementById("pr-comments-list");
   container.innerHTML = "";
   if (comments.length === 0) {
-    container.textContent = "Nessun commento da valutare.";
+    container.textContent = "No comments to evaluate.";
     document.getElementById("pr-comment-batch-box").hidden = true;
     updatePrCommentBatchActions();
     return;
@@ -1826,7 +1855,7 @@ function renderPrComments(comments) {
     if (c.dismissed || c.resolved) {
       const ignored = document.createElement("span");
       ignored.className = c.dismissed ? "pr-comment-ignored" : "pr-comment-resolved";
-      ignored.textContent = c.dismissed ? "Ignorato dal piano" : "Risolto su Azure DevOps";
+      ignored.textContent = c.dismissed ? "Ignored by the plan" : "Resolved in Azure DevOps";
       head.append(ignored);
     }
     item.appendChild(head);
@@ -1856,15 +1885,15 @@ function renderPrComments(comments) {
       updatePrCommentBatchActions();
     });
     const selectText = document.createElement("span");
-    selectText.textContent = "Includi nel piano";
+    selectText.textContent = "Include in plan";
     selectLabel.append(select, selectText);
     const noteBox = document.createElement("label");
     noteBox.className = "pr-comment-plan-note";
     noteBox.hidden = !select.checked;
-    noteBox.textContent = "Nota per il piano (facoltativa)";
+    noteBox.textContent = "Note for the plan (optional)";
     const noteInput = document.createElement("textarea");
     noteInput.rows = 2;
-    noteInput.placeholder = "Indica vincoli, priorita' o aspetti da considerare.";
+    noteInput.placeholder = "Specify constraints, priorities, or aspects to consider.";
     noteInput.value = prCommentPlanningNotes.get(c.thread_id) || "";
     noteInput.addEventListener("input", () => {
       prCommentPlanningNotes.set(c.thread_id, noteInput.value);
@@ -1873,20 +1902,20 @@ function renderPrComments(comments) {
     if (c.dismissed) {
       const restoreBtn = document.createElement("button");
       restoreBtn.type = "button";
-      restoreBtn.textContent = "Reincludi nel piano";
+      restoreBtn.textContent = "Include in plan again";
       restoreBtn.addEventListener("click", () => restoreComment(c.thread_id, restoreBtn));
       actions.append(selectLabel, restoreBtn);
 
       const reply = document.createElement("div");
       reply.className = "pr-comment-reply";
       const replyLabel = document.createElement("label");
-      replyLabel.textContent = "Risposta per Azure DevOps";
+      replyLabel.textContent = "Reply for Azure DevOps";
       const replyInput = document.createElement("textarea");
       replyInput.rows = 3;
-      replyInput.placeholder = "Scrivi una risposta: verra' pubblicata sul thread e il commento verra' risolto.";
+      replyInput.placeholder = "Write a reply: it will be published on the thread and the comment will be resolved.";
       const replyBtn = document.createElement("button");
       replyBtn.type = "button";
-      replyBtn.textContent = "Rispondi e risolvi";
+      replyBtn.textContent = "Reply and resolve";
       replyBtn.disabled = true;
       replyInput.addEventListener("input", () => {
         replyBtn.disabled = !replyInput.value.trim();
@@ -1898,7 +1927,7 @@ function renderPrComments(comments) {
     } else if (!c.resolved) {
       const dismissBtn = document.createElement("button");
       dismissBtn.type = "button";
-      dismissBtn.textContent = "Ignora";
+      dismissBtn.textContent = "Ignore";
       dismissBtn.addEventListener("click", () => dismissComment(c.thread_id, dismissBtn));
       actions.append(selectLabel, dismissBtn);
     }
@@ -2007,7 +2036,7 @@ function appendInlineCommentText(container, text) {
 }
 
 async function dismissComment(threadId, button) {
-  if (!await confirmAction("Ignorare solo questo commento? Gli altri commenti della PR resteranno disponibili.", "Ignora commento")) {
+  if (!await confirmAction("Ignore only this comment? The other PR comments will remain available.", "Ignore comment")) {
     return;
   }
   button.disabled = true;
@@ -2022,11 +2051,11 @@ async function dismissComment(threadId, button) {
     const hint = document.getElementById("pr-review-hint");
     const availableCount = result.comments.filter((comment) => !comment.dismissed).length;
     hint.textContent = availableCount
-      ? `${availableCount} commenti da valutare.`
-      : "Nessun commento da valutare.";
+      ? `${availableCount} comments to evaluate.`
+      : "No comments to evaluate.";
   } catch (err) {
     button.disabled = false;
-    await showError(`Impossibile ignorare il commento: ${err.message}`);
+    await showError(`Unable to ignore the comment: ${err.message}`);
   }
 }
 
@@ -2037,14 +2066,14 @@ async function restoreComment(threadId, button) {
     await loadPrComments(true);
   } catch (err) {
     button.disabled = false;
-    await showError(`Impossibile reincludere il commento: ${err.message}`);
+    await showError(`Unable to include the comment again: ${err.message}`);
   }
 }
 
 async function replyAndResolveComment(threadId, input, button) {
   if (!await confirmAction(
-    "Pubblicare questa risposta su Azure DevOps e risolvere il commento selezionato?",
-    "Rispondi e risolvi"
+    "Publish this reply in Azure DevOps and resolve the selected comment?",
+    "Reply and resolve"
   )) return;
   button.disabled = true;
   input.disabled = true;
@@ -2058,7 +2087,7 @@ async function replyAndResolveComment(threadId, input, button) {
   } catch (err) {
     input.disabled = false;
     button.disabled = !input.value.trim();
-    await showError(`Impossibile rispondere e risolvere il commento: ${err.message}`);
+    await showError(`Unable to reply to and resolve the comment: ${err.message}`);
   }
 }
 
@@ -2067,7 +2096,7 @@ function updatePrCommentBatchActions(batch = currentPrCommentBatch) {
   const applyBtn = document.getElementById("pr-comments-apply-btn");
   const commitBtn = document.getElementById("pr-comments-commit-btn");
   planBtn.hidden = Boolean(batch && batch.status === "changes_applied");
-  planBtn.textContent = batch && batch.status === "plan_ready" ? "Rigenera piano" : "Crea piano selezionati";
+  planBtn.textContent = batch && batch.status === "plan_ready" ? "Regenerate plan" : "Create plan for selected comments";
   planBtn.disabled = prBatchSubmitting || selectedPrCommentIds.size === 0;
   applyBtn.hidden = !batch || batch.status !== "plan_ready";
   applyBtn.disabled = prBatchSubmitting;
@@ -2087,11 +2116,11 @@ function renderPrCommentBatch(batch) {
   }
   plan.textContent = batch.plan_text;
   if (batch.status === "plan_ready") {
-    hint.textContent = "Piano pronto: approva per applicare le modifiche, senza commit.";
+    hint.textContent = "Plan ready: approve to apply changes without committing.";
   } else if (batch.status === "changes_applied") {
-    hint.textContent = "Modifiche applicate senza commit: controllale e approva commit e push quando sei pronto.";
+    hint.textContent = "Changes applied without a commit: review them and approve the commit and push when ready.";
   } else if (batch.status === "completed") {
-    hint.textContent = "Commit e push completati; i thread selezionati sono stati risolti.";
+    hint.textContent = "Commit and push completed; the selected threads have been resolved.";
   }
   updatePrCommentBatchActions(batch);
 }
@@ -2101,7 +2130,7 @@ async function createPrCommentBatchPlan() {
   const hint = document.getElementById("pr-comment-batch-hint");
   prBatchSubmitting = true;
   updatePrCommentBatchActions();
-  hint.textContent = "Creo il piano per i commenti selezionati...";
+  hint.textContent = "Creating the plan for selected comments...";
   try {
     const batch = await fetchJson(`/api/pr-comment-batch/${currentView.workItemId}/plan`, {
       method: "POST",
@@ -2117,7 +2146,7 @@ async function createPrCommentBatchPlan() {
     });
     renderPrCommentBatch(batch);
   } catch (err) {
-    hint.textContent = `Piano non riuscito: ${err.message}`;
+    hint.textContent = `Plan failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     prBatchSubmitting = false;
@@ -2127,18 +2156,18 @@ async function createPrCommentBatchPlan() {
 
 async function applyPrCommentBatch() {
   if (prBatchSubmitting || !await confirmAction(
-    "Applicare le modifiche del piano senza fare commit o push?",
-    "Applica modifiche"
+    "Apply the plan's changes without committing or pushing?",
+    "Apply changes"
   )) return;
   const hint = document.getElementById("pr-comment-batch-hint");
   prBatchSubmitting = true;
   updatePrCommentBatchActions();
-  hint.textContent = "Applico le modifiche approvate, senza commit...";
+  hint.textContent = "Applying approved changes without committing...";
   try {
     const result = await fetchJson(`/api/pr-comment-batch/${currentView.workItemId}/apply`, { method: "POST" });
     renderPrCommentBatch(result);
   } catch (err) {
-    hint.textContent = `Applicazione non riuscita: ${err.message}`;
+    hint.textContent = `Application failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     prBatchSubmitting = false;
@@ -2148,19 +2177,19 @@ async function applyPrCommentBatch() {
 
 async function commitPrCommentBatch() {
   if (prBatchSubmitting || !await confirmAction(
-    "Confermi commit e push delle modifiche già applicate?",
+    "Confirm committing and pushing the changes already applied?",
     "Commit e push"
   )) return;
   const hint = document.getElementById("pr-comment-batch-hint");
   prBatchSubmitting = true;
   updatePrCommentBatchActions();
-  hint.textContent = "Eseguo commit e push approvati...";
+  hint.textContent = "Running the approved commit and push...";
   try {
     const result = await fetchJson(`/api/pr-comment-batch/${currentView.workItemId}/commit`, { method: "POST" });
     renderPrCommentBatch(result);
     if (result.committed)     await loadPrComments(true);
   } catch (err) {
-    hint.textContent = `Commit o push non riuscito: ${err.message}`;
+    hint.textContent = `Commit or push failed: ${err.message}`;
     hint.classList.add("error");
   } finally {
     prBatchSubmitting = false;
@@ -2177,7 +2206,7 @@ async function createPrFromDetail(autoComplete = false) {
     const result = await fetchJson(endpoint, { method: "POST" });
     window.open(result.url, "_blank");
   } catch (err) {
-    await showError(`Impossibile creare la PR per #${workItemId}: ${err.message}`);
+    await showError(`Unable to create the PR for #${workItemId}: ${err.message}`);
   }
   await Promise.all([refreshTickets(), refreshHistory()]);
 }
@@ -2185,10 +2214,10 @@ async function createPrFromDetail(autoComplete = false) {
 async function triggerRun(script) {
   try {
     await fetchJson(`/api/run/${script}`, { method: "POST" });
-    showActionFeedback(`Run ${script} avviato. Stato aggiornato.`);
+    showActionFeedback(`${script} run started. Status updated.`);
   } catch (err) {
-    showActionFeedback(`Impossibile avviare ${script}: ${err.message}`, true);
-    await showError(`Impossibile avviare ${script}: ${err.message}`);
+    showActionFeedback(`Unable to start ${script}: ${err.message}`, true);
+    await showError(`Unable to start ${script}: ${err.message}`);
   }
   await refreshAfterTicketMutation();
 }
@@ -2208,7 +2237,7 @@ async function tick() {
       ]);
     }
   } catch (err) {
-    console.error("Errore aggiornamento dashboard:", err);
+    console.error("Dashboard update error:", err);
   }
 }
 
@@ -2261,6 +2290,7 @@ document.getElementById("ticket-chat-send-btn").addEventListener("click", sendTi
 document.getElementById("restart-ticket-btn").addEventListener("click", restartTicketFromScratch);
 document.getElementById("settings-form").addEventListener("submit", saveSettings);
 document.getElementById("check-app-update-btn").addEventListener("click", checkAppUpdate);
+document.getElementById("install-app-update-btn").addEventListener("click", installAppUpdate);
 document.getElementById("open-app-release-btn").addEventListener("click", openAppRelease);
 document.getElementById("onboarding-form").addEventListener("submit", saveOnboardingField);
 document.getElementById("onboarding-dialog").addEventListener("cancel", (event) => {
@@ -2279,7 +2309,7 @@ document.getElementById("workflow-chat-send-btn").addEventListener("click", send
   } catch (err) {
     // Configurazione (ancora) incompleta, es. PAT non impostato: manda
     // l'utente dritto in Impostazioni invece di lasciare la dashboard rotta.
-    console.warn("Configurazione non disponibile, apro Impostazioni:", err.message);
+    console.warn("Configuration unavailable, opening Settings:", err.message);
     showNav("settings");
     configAvailable = false;
   }

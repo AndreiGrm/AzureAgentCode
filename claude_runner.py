@@ -58,9 +58,9 @@ def _positive_environment_int(name: str) -> int | None:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise RuntimeError(f"{name} deve essere un numero intero positivo") from exc
+        raise RuntimeError(f"{name} must be a positive integer") from exc
     if parsed <= 0:
-        raise RuntimeError(f"{name} deve essere maggiore di zero")
+        raise RuntimeError(f"{name} must be greater than zero")
     return parsed
 
 
@@ -71,8 +71,8 @@ def _ensure_token_budget_available() -> None:
     status = history.get_token_budget_status(token_limit)
     if status["is_exhausted"]:
         raise RuntimeError(
-            f"Budget token esaurito ({status['used_tokens']:,}/{token_limit:,}). "
-            "Aggiorna AGENT_TOKEN_BUDGET nelle Impostazioni prima di avviare altri agenti."
+            f"Token budget exhausted ({status['used_tokens']:,}/{token_limit:,}). "
+            "Update AGENT_TOKEN_BUDGET in Settings before starting more agents."
         )
 
 
@@ -85,8 +85,8 @@ def _run_command_agent(
     command = os.environ.get("AGENT_COMMAND", "").strip()
     if not command:
         raise RuntimeError(
-            "AGENT_COMMAND e' obbligatorio quando AGENT_PROVIDER e' 'command'. "
-            "Il comando deve leggere il prompt dallo standard input."
+            "AGENT_COMMAND is required when AGENT_PROVIDER is 'command'. "
+            "The command must read the prompt from standard input."
         )
 
     environment = os.environ.copy()
@@ -107,12 +107,12 @@ def _run_command_agent(
     authentication_output = f"{completed.stdout}\n{completed.stderr}".lower()
     if "oauth session expired" in authentication_output:
         raise RuntimeError(
-            "La sessione dell'agente CLI esterno e' scaduta. "
-            "Apri un terminale ed esegui `claude login`, poi riprova."
+            "The external CLI agent session has expired. "
+            "Open a terminal, run `claude login`, then try again."
         )
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or "nessun dettaglio disponibile"
-        raise RuntimeError(f"Agente esterno terminato con codice {completed.returncode}: {detail}")
+        detail = completed.stderr.strip() or "no details available"
+        raise RuntimeError(f"External agent exited with code {completed.returncode}: {detail}")
     return ClaudeRunResult(output=completed.stdout)
 
 
@@ -120,12 +120,12 @@ def _run_copilot_cli_agent() -> ClaudeRunResult:
     """Controlla Copilot CLI senza avviare una sessione interattiva nel worker."""
     if shutil.which("copilot") is None:
         raise RuntimeError(
-            "GitHub Copilot CLI non e' installato o non e' nel PATH. "
-            "Installa con `winget install GitHub.Copilot`, quindi esegui `copilot login`."
+            "GitHub Copilot CLI is not installed or is not on PATH. "
+            "Install it with `winget install GitHub.Copilot`, then run `copilot login`."
         )
     raise RuntimeError(
-        "GitHub Copilot CLI e' stato rilevato, ma richiede una sessione interattiva. "
-        "Non puo' ancora eseguire in sicurezza i run automatici della dashboard; usa `copilot` dal terminale."
+        "GitHub Copilot CLI was detected but requires an interactive session. "
+        "It cannot yet safely run the dashboard's automatic runs; use `copilot` from the terminal."
     )
 
 
@@ -158,13 +158,13 @@ def run_claude(
     if provider == "copilot_cli":
         return _run_copilot_cli_agent()
     if provider != "claude_sdk":
-        raise RuntimeError(f"Provider agente non supportato: {provider}")
+        raise RuntimeError(f"Unsupported agent provider: {provider}")
 
     max_output_tokens = _positive_environment_int("AGENT_MAX_OUTPUT_TOKENS")
     if max_output_tokens is not None:
         prompt = (
-            f"{prompt}\n\nVincolo operativo: mantieni la risposta entro "
-            f"{max_output_tokens} token di output."
+            f"{prompt}\n\nOperational constraint: keep the response within "
+            f"{max_output_tokens} output tokens."
         )
 
     async def _run() -> ClaudeRunResult:
@@ -235,8 +235,8 @@ def run_claude(
                                 await client.interrupt()
                             history.consume_correction(pending["id"])
                             await client.query(
-                                "[Correzione inviata dall'utente mentre lavoravi, tienine conto "
-                                f"subito]\n{pending['text']}"
+                                "[The user sent this correction while you were working; account for it "
+                                f"immediately]\n{pending['text']}"
                             )
                             sent += 1
                             corrections_applied.append(pending["text"])
@@ -248,8 +248,8 @@ def run_claude(
 
                         if anyio.current_time() - last_activity > INTERRUPTED_TURN_GRACE_S:
                             logger.warning(
-                                "run_claude: nessuna attivita' da %.0fs con un turno mai "
-                                "risolto, forzo la chiusura (testo parziale conservato)",
+                                "run_claude: no activity for %.0fs with an unresolved "
+                                "turn; forcing closure (partial text retained)",
                                 INTERRUPTED_TURN_GRACE_S,
                             )
                             if turn_chunks:

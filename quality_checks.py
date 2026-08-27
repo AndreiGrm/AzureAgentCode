@@ -84,7 +84,7 @@ def run_quality_checks(cfg: Config) -> tuple[str, list[dict]]:
             output = (result.stdout + result.stderr).strip()
         except subprocess.TimeoutExpired as exc:
             status = "failed"
-            output = f"Timeout dopo 900 secondi.\n{exc.stdout or ''}\n{exc.stderr or ''}".strip()
+            output = f"Timed out after 900 seconds.\n{exc.stdout or ''}\n{exc.stderr or ''}".strip()
         checks.append({
             **definition,
             "status": status,

@@ -47,10 +47,10 @@ FIELDS = [
 ]
 
 STYLE_GUIDE_INSTRUCTION = (
-    "Prima di scrivere o modificare interfaccia utente, controlla come sono "
-    "strutturati/stilizzati componenti simili gia' esistenti nel repo (design "
-    "system, componenti condivisi, variabili di stile) e segui le stesse "
-    "convenzioni invece di inventare stile ad-hoc.\n\n"
+    "Before writing or modifying a user interface, check how similar existing "
+    "components in the repository are structured and styled (design system, "
+    "shared components, style variables) and follow the same conventions "
+    "instead of inventing ad-hoc styling.\n\n"
 )
 
 # Tool Figma di sola lettura (niente use_figma/create_new_file/upload_assets:
@@ -75,11 +75,11 @@ def _design_context_prompt(description: str) -> tuple[str, list[str]]:
         return "", []
     links = "\n".join(f"- {url}" for url in figma_urls)
     section = (
-        f"Il work item cita questo/i link Figma:\n{links}\n"
-        "Usa i tool Figma disponibili (get_design_context, get_screenshot, ecc.) "
-        "per capire il design prima di procedere. Se il tool non funziona o non "
-        "hai accesso, NON indovinare il design: segnalalo esplicitamente nel "
-        "piano/riassunto finale invece di ignorare il link.\n\n"
+        f"The work item references this/these Figma link(s):\n{links}\n"
+        "Use the available Figma tools (get_design_context, get_screenshot, etc.) "
+        "to understand the design before proceeding. If the tool does not work or "
+        "you do not have access, do NOT guess the design: explicitly report this in "
+        "the final plan/summary instead of ignoring the link.\n\n"
     )
     return section, FIGMA_READ_TOOLS
 
@@ -163,30 +163,30 @@ def generate_plan(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int)
     """Genera un mini-piano implementativo per un PBI candidato, SENZA
     toccare il codice: il piano resta in attesa di approvazione dell'utente
     dalla dashboard (agent:plan-ready) prima che implement_work_item parta."""
-    logger.info("Work item #%s: generazione piano implementativo", work_item.id)
+    logger.info("Work item #%s: generating implementation plan", work_item.id)
     history.log_event(
-        run_id, "generating_plan", f"Work item #{work_item.id}: generazione piano implementativo",
+        run_id, "generating_plan", f"Work item #{work_item.id}: generating implementation plan",
         work_item_id=work_item.id,
     )
 
     design_section, design_tools = _design_context_prompt(work_item.description)
     graphify_section = get_graphify_context(
         cfg.repo_path,
-        f"Come implementare il work item #{work_item.id}: {work_item.title}. {work_item.description}",
+        f"How to implement work item #{work_item.id}: {work_item.title}. {work_item.description}",
     )
     prompt = (
-        f"Devi SOLO pianificare, non implementare nulla. Per il work item Azure DevOps "
-        f"#{work_item.id} nel repository corrente, scrivi un piano implementativo sintetico.\n\n"
-        f"Titolo: {work_item.title}\n\nDescrizione:\n{work_item.description}\n\n"
+        f"You must ONLY plan, not implement anything. For Azure DevOps work item "
+        f"#{work_item.id} in the current repository, write a concise implementation plan.\n\n"
+        f"Title: {work_item.title}\n\nDescription:\n{work_item.description}\n\n"
         f"{STYLE_GUIDE_INSTRUCTION}"
         f"{design_section}"
         f"{graphify_section}\n\n"
-        "Esplora il codice quanto serve (solo lettura) e scrivi un piano con:\n"
-        "- i passi principali dell'implementazione, in ordine;\n"
-        "- i file/moduli probabilmente coinvolti;\n"
-        "- eventuali rischi, ambiguita' o dubbi da segnalare all'utente (incluso se non hai "
-        "potuto consultare un link di design citato nel work item).\n"
-        "Rispondi solo con il piano in testo semplice, niente modifiche al codice."
+        "Explore the code as needed (read-only) and write a plan with:\n"
+        "- the main implementation steps, in order;\n"
+        "- the files/modules likely involved;\n"
+        "- any risks, ambiguities, or concerns to report to the user (including if you could not "
+        "access a design link referenced by the work item).\n"
+        "Respond only with the plain-text plan in English; do not modify code."
     )
     try:
         result = run_claude(
@@ -194,9 +194,9 @@ def generate_plan(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int)
             work_item_id=work_item.id, run_id=run_id,
         )
     except Exception:
-        logger.exception("Work item #%s: errore generando il piano, riprovero' al prossimo run", work_item.id)
+        logger.exception("Work item #%s: error generating plan; will retry on the next run", work_item.id)
         history.log_event(
-            run_id, "error", f"Work item #{work_item.id}: errore generando il piano",
+            run_id, "error", f"Work item #{work_item.id}: error generating plan",
             level="error", work_item_id=work_item.id, detail=traceback.format_exc(),
         )
         return
@@ -204,7 +204,7 @@ def generate_plan(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int)
     history.save_plan(work_item.id, run_id, result.output)
     state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_PLAN_READY)
     history.log_event(
-        run_id, "plan_ready", f"Work item #{work_item.id}: piano generato, in attesa di approvazione",
+        run_id, "plan_ready", f"Work item #{work_item.id}: plan generated, awaiting approval",
         work_item_id=work_item.id, detail=result.output,
     )
 
@@ -215,10 +215,10 @@ def fix_work_item(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int,
     esistente invece di crearne uno nuovo."""
     branch = history.get_branch_for_work_item(work_item.id)
     if branch is None:
-        logger.error("Work item #%s: nessun branch noto per applicare il fix, lo marco come bloccato", work_item.id)
+        logger.error("Work item #%s: no known branch to apply the fix; marking it blocked", work_item.id)
         state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BLOCKED)
         history.log_event(
-            run_id, "blocked", f"Work item #{work_item.id}: nessun branch noto per applicare il fix richiesto",
+            run_id, "blocked", f"Work item #{work_item.id}: no known branch to apply the requested fix",
             level="error", work_item_id=work_item.id,
         )
         return
@@ -226,34 +226,34 @@ def fix_work_item(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int,
     try:
         run_git("checkout", branch, cwd=cfg.repo_path)
     except subprocess.CalledProcessError as exc:
-        logger.error("Work item #%s: impossibile passare al branch %s per il fix: %s", work_item.id, branch, exc.stderr)
+        logger.error("Work item #%s: unable to switch to branch %s for the fix: %s", work_item.id, branch, exc.stderr)
         history.log_event(
-            run_id, "error", f"Work item #{work_item.id}: impossibile passare al branch {branch} per il fix",
+            run_id, "error", f"Work item #{work_item.id}: unable to switch to branch {branch} for the fix",
             level="error", work_item_id=work_item.id, branch=branch, detail=exc.stderr,
         )
         return
 
     last_summary = _find_latest_technical_summary(work_item.id)
-    summary_section = f"Riassunto tecnico dell'implementazione precedente:\n{last_summary}\n\n" if last_summary else ""
+    summary_section = f"Technical summary of the previous implementation:\n{last_summary}\n\n" if last_summary else ""
     design_section, design_tools = _design_context_prompt(work_item.description)
     prompt = (
-        f"Hai gia' implementato il work item Azure DevOps #{work_item.id} sul branch "
-        f"'{branch}'. L'utente ha rivisto il risultato e chiede una correzione.\n\n"
-        f"Titolo: {work_item.title}\n\nDescrizione originale:\n{work_item.description}\n\n"
+        f"You already implemented Azure DevOps work item #{work_item.id} on branch "
+        f"'{branch}'. The user reviewed the result and requested a correction.\n\n"
+        f"Title: {work_item.title}\n\nOriginal description:\n{work_item.description}\n\n"
         f"{summary_section}"
         f"{STYLE_GUIDE_INSTRUCTION}"
         f"{design_section}"
-        f"Correzione richiesta dall'utente:\n{fix_text}\n\n"
-        "Istruzioni:\n"
-        "1. Applica la correzione richiesta nel codice.\n"
-        "2. Fai commit delle modifiche con un messaggio chiaro.\n"
-        f"3. Pusha il branch: git push origin {branch}\n"
-        "4. Concludi con un blocco 'RIASSUNTO TECNICO:' che descrive cosa hai corretto, "
-        "poi una riga nel formato esatto: IMPLEMENTED: done (oppure IMPLEMENTED: failed)."
+        f"Correction requested by the user:\n{fix_text}\n\n"
+        "Instructions:\n"
+        "1. Apply the requested correction in the code.\n"
+        "2. Commit the changes with a clear message.\n"
+        f"3. Push the branch: git push origin {branch}\n"
+        "4. End with a 'TECHNICAL SUMMARY:' block describing what you fixed, "
+        "then a line in the exact format: IMPLEMENTED: done (or IMPLEMENTED: failed). Respond in English."
     )
 
     history.log_event(
-        run_id, "fixing", f"Work item #{work_item.id}: Claude Code sta applicando il fix richiesto su {branch}",
+        run_id, "fixing", f"Work item #{work_item.id}: Claude Code is applying the requested fix on {branch}",
         work_item_id=work_item.id, branch=branch,
     )
     try:
@@ -262,18 +262,18 @@ def fix_work_item(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int,
             work_item_id=work_item.id, run_id=run_id,
         )
     except Exception:
-        logger.exception("Work item #%s: errore durante l'invocazione di Claude Code per il fix", work_item.id)
+        logger.exception("Work item #%s: error invoking Claude Code for the fix", work_item.id)
         history.log_event(
-            run_id, "error", f"Work item #{work_item.id}: errore invocando Claude Code per il fix",
+            run_id, "error", f"Work item #{work_item.id}: error invoking Claude Code for the fix",
             level="error", work_item_id=work_item.id, branch=branch, detail=traceback.format_exc(),
         )
         return
 
     if "IMPLEMENTED: done" not in result.output:
-        logger.warning("Work item #%s: fix non confermato dall'agente, lo marco come bloccato", work_item.id)
+        logger.warning("Work item #%s: fix not confirmed by the agent; marking it blocked", work_item.id)
         state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BLOCKED)
         history.log_event(
-            run_id, "blocked", f"Work item #{work_item.id}: fix non confermato dall'agente",
+            run_id, "blocked", f"Work item #{work_item.id}: fix not confirmed by the agent",
             level="warning", work_item_id=work_item.id, branch=branch, detail=result.output,
         )
         return
@@ -285,7 +285,7 @@ def fix_work_item(cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int,
 
     detail = _extract_technical_summary(result)
     history.log_event(
-        run_id, "fix_applied", f"Work item #{work_item.id}: fix applicato su {branch}",
+        run_id, "fix_applied", f"Work item #{work_item.id}: fix applied on {branch}",
         work_item_id=work_item.id, branch=branch, detail=detail,
     )
 
@@ -304,30 +304,30 @@ def _extract_technical_summary(result) -> str | None:
     presente) ed eventuali correzioni live applicate durante il run, per
     persisterlo come detail dell'evento e mostrarlo nel pannello di verifica
     della dashboard."""
-    match = re.search(r"RIASSUNTO TECNICO:\s*(.+?)(?:\n*IMPLEMENTED:|\Z)", result.output, re.DOTALL)
+    match = re.search(r"(?:TECHNICAL SUMMARY|RIASSUNTO TECNICO):\s*(.+?)(?:\n*IMPLEMENTED:|\Z)", result.output, re.DOTALL)
     summary = match.group(1).strip() if match else None
     parts = [p for p in (summary,) if p]
     if result.corrections_applied:
         parts.append(
-            "Correzioni applicate durante il run:\n"
+            "Corrections applied during the run:\n"
             + "\n".join(f"- {c}" for c in result.corrections_applied)
         )
     return "\n\n".join(parts) or None
 
 
 def decompose_epic(cfg: Config, wit_client, epic: WorkItemInfo, run_id: int) -> None:
-    logger.info("Epic #%s '%s': scomposizione in PBI figli", epic.id, epic.title)
+    logger.info("Epic #%s '%s': decomposing into child PBIs", epic.id, epic.title)
     history.log_event(
-        run_id, "decomposing", f"Scomposizione Epic #{epic.id} '{epic.title}' in PBI figli",
+        run_id, "decomposing", f"Decomposing Epic #{epic.id} '{epic.title}' into child PBIs",
         work_item_id=epic.id,
     )
 
     prompt = (
-        "Sei un Product Owner. Scomponi la seguente Epic in 2-6 Product Backlog "
-        "Item (PBI) indipendenti, ciascuno implementabile singolarmente.\n\n"
-        f"Epic #{epic.id}: {epic.title}\n\nDescrizione:\n{epic.description}\n\n"
-        "Rispondi SOLO con un array JSON, senza testo aggiuntivo prima o dopo, "
-        'nel formato: [{"title": "...", "description": "..."}, ...]'
+        "You are a Product Owner. Decompose the following Epic into 2–6 independent "
+        "Product Backlog Items (PBIs), each of which can be implemented individually.\n\n"
+        f"Epic #{epic.id}: {epic.title}\n\nDescription:\n{epic.description}\n\n"
+        "Respond ONLY with a JSON array, with no additional text before or after, "
+        'in the format: [{"title": "...", "description": "..."}, ...]. Use English for titles and descriptions.'
     )
     try:
         raw = run_claude(
@@ -335,27 +335,27 @@ def decompose_epic(cfg: Config, wit_client, epic: WorkItemInfo, run_id: int) -> 
             work_item_id=epic.id, run_id=run_id,
         ).output
     except Exception:
-        logger.exception("Epic #%s: errore durante l'invocazione di Claude Code, riprovero' al prossimo run", epic.id)
+        logger.exception("Epic #%s: error invoking Claude Code; will retry on the next run", epic.id)
         history.log_event(
-            run_id, "error", f"Epic #{epic.id}: errore invocando Claude Code per la decomposizione",
+            run_id, "error", f"Epic #{epic.id}: error invoking Claude Code for decomposition",
             level="error", work_item_id=epic.id,
         )
         return
 
     match = re.search(r"\[.*\]", raw, re.DOTALL)
     if not match:
-        logger.error("Epic #%s: risposta di decomposizione non interpretabile, riprovero' al prossimo run", epic.id)
+        logger.error("Epic #%s: unparseable decomposition response; will retry on the next run", epic.id)
         history.log_event(
-            run_id, "error", f"Epic #{epic.id}: risposta di decomposizione non interpretabile",
+            run_id, "error", f"Epic #{epic.id}: unparseable decomposition response",
             level="error", work_item_id=epic.id, detail=raw,
         )
         return
     try:
         children = json.loads(match.group(0))
     except json.JSONDecodeError:
-        logger.error("Epic #%s: JSON di decomposizione non valido, riprovero' al prossimo run", epic.id)
+        logger.error("Epic #%s: invalid decomposition JSON; will retry on the next run", epic.id)
         history.log_event(
-            run_id, "error", f"Epic #{epic.id}: JSON di decomposizione non valido",
+            run_id, "error", f"Epic #{epic.id}: invalid decomposition JSON",
             level="error", work_item_id=epic.id, detail=match.group(0),
         )
         return
@@ -381,23 +381,23 @@ def decompose_epic(cfg: Config, wit_client, epic: WorkItemInfo, run_id: int) -> 
                 )
             ]
             wit_client.update_work_item(relation_patch, epic.id, project=cfg.project)
-            logger.info("Epic #%s: creato PBI figlio #%s '%s'", epic.id, created.id, title)
+            logger.info("Epic #%s: created child PBI #%s '%s'", epic.id, created.id, title)
             created_count += 1
             created_titles.append(f"#{created.id} {title}")
         except Exception:
-            logger.exception("Epic #%s: errore creando il PBI figlio '%s', continuo con gli altri", epic.id, title)
+            logger.exception("Epic #%s: error creating child PBI '%s'; continuing with the others", epic.id, title)
 
     if created_count > 0:
         state.add_tag(wit_client, cfg.project, epic.id, state.TAG_DECOMPOSED)
         history.log_event(
             run_id, "epic_decomposed",
-            f"Epic #{epic.id}: creati {created_count} PBI figli",
+            f"Epic #{epic.id}: created {created_count} child PBIs",
             work_item_id=epic.id, detail="\n".join(created_titles),
         )
     else:
-        logger.error("Epic #%s: nessun PBI figlio creato, riprovero' al prossimo run", epic.id)
+        logger.error("Epic #%s: no child PBIs created; will retry on the next run", epic.id)
         history.log_event(
-            run_id, "error", f"Epic #{epic.id}: nessun PBI figlio creato",
+            run_id, "error", f"Epic #{epic.id}: no child PBIs created",
             level="error", work_item_id=epic.id,
         )
 
@@ -406,56 +406,56 @@ def implement_work_item(
     cfg: Config, wit_client, work_item: WorkItemInfo, run_id: int, plan_text: str | None = None,
 ) -> None:
     branch = branch_name(work_item)
-    logger.info("Work item #%s: preparazione branch %s", work_item.id, branch)
+    logger.info("Work item #%s: preparing branch %s", work_item.id, branch)
 
     try:
         ensure_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
         logger.error(
-            "Work item #%s: impossibile creare/passare al branch %s: %s",
+            "Work item #%s: unable to create/switch to branch %s: %s",
             work_item.id, branch, exc.stderr,
         )
         state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BLOCKED)
         history.log_event(
-            run_id, "blocked", f"Work item #{work_item.id}: impossibile creare/passare al branch {branch}",
+            run_id, "blocked", f"Work item #{work_item.id}: unable to create/switch to branch {branch}",
             level="error", work_item_id=work_item.id, branch=branch, detail=exc.stderr,
         )
         return
 
     state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BRANCH_CREATED)
     history.log_event(
-        run_id, "branch_created", f"Work item #{work_item.id}: creato branch {branch}",
+        run_id, "branch_created", f"Work item #{work_item.id}: created branch {branch}",
         work_item_id=work_item.id, branch=branch,
     )
 
     plan_section = (
-        f"Piano approvato dall'utente (segui questo piano; se devi deviare in modo "
-        f"significativo, spiega perche' nel riassunto finale):\n{plan_text}\n\n"
+        f"Plan approved by the user (follow this plan; if you need to deviate "
+        f"significantly, explain why in the final summary):\n{plan_text}\n\n"
         if plan_text else ""
     )
     design_section, design_tools = _design_context_prompt(work_item.description)
     prompt = (
-        f"Implementa il work item Azure DevOps #{work_item.id} nel repository corrente.\n\n"
-        f"Titolo: {work_item.title}\n\n"
-        f"Descrizione:\n{work_item.description}\n\n"
+        f"Implement Azure DevOps work item #{work_item.id} in the current repository.\n\n"
+        f"Title: {work_item.title}\n\n"
+        f"Description:\n{work_item.description}\n\n"
         f"{plan_section}"
         f"{STYLE_GUIDE_INSTRUCTION}"
         f"{design_section}"
-        f"Sei gia' sul branch locale '{branch}', creato da {cfg.base_branch}.\n\n"
-        "Istruzioni:\n"
-        "1. Implementa le modifiche necessarie nel codice.\n"
-        "2. Fai commit delle modifiche con un messaggio chiaro.\n"
-        f"3. Pusha il branch: git push -u origin {branch}\n"
-        "4. NON aprire una pull request: la apre un umano dopo aver revisionato il codice.\n"
-        "5. Concludi con un blocco 'RIASSUNTO TECNICO:' che descriva cosa hai implementato, "
-        "come hai mockato eventuali parti mancanti del backend, quali componenti/dialog/file "
-        "hai creato o modificato.\n"
-        "6. Poi una riga nel formato esatto: IMPLEMENTED: done "
-        "(oppure IMPLEMENTED: failed se non riesci a completare l'implementazione)"
+        f"You are already on local branch '{branch}', created from {cfg.base_branch}.\n\n"
+        "Instructions:\n"
+        "1. Implement the required code changes.\n"
+        "2. Commit the changes with a clear message.\n"
+        f"3. Push the branch: git push -u origin {branch}\n"
+        "4. Do NOT open a pull request: a human opens it after reviewing the code.\n"
+        "5. End with a 'TECHNICAL SUMMARY:' block describing what you implemented, "
+        "how you mocked any missing backend parts, and what components, dialogs, or files "
+        "you created or modified.\n"
+        "6. Then add a line in the exact format: IMPLEMENTED: done "
+        "(or IMPLEMENTED: failed if you cannot complete the implementation). Respond in English."
     )
 
     history.log_event(
-        run_id, "implementing", f"Work item #{work_item.id}: Claude Code sta implementando sul branch {branch}",
+        run_id, "implementing", f"Work item #{work_item.id}: Claude Code is implementing on branch {branch}",
         work_item_id=work_item.id, branch=branch,
     )
     try:
@@ -464,19 +464,19 @@ def implement_work_item(
             work_item_id=work_item.id, run_id=run_id,
         )
     except Exception:
-        logger.exception("Work item #%s: errore durante l'invocazione di Claude Code", work_item.id)
+        logger.exception("Work item #%s: error invoking Claude Code", work_item.id)
         state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BLOCKED)
         history.log_event(
-            run_id, "blocked", f"Work item #{work_item.id}: errore invocando Claude Code",
+            run_id, "blocked", f"Work item #{work_item.id}: error invoking Claude Code",
             level="error", work_item_id=work_item.id, branch=branch, detail=traceback.format_exc(),
         )
         return
 
     if "IMPLEMENTED: done" not in result.output:
-        logger.warning("Work item #%s: implementazione non confermata dall'agente, lo marco come bloccato", work_item.id)
+        logger.warning("Work item #%s: implementation not confirmed by the agent; marking it blocked", work_item.id)
         state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_BLOCKED)
         history.log_event(
-            run_id, "blocked", f"Work item #{work_item.id}: implementazione non confermata dall'agente",
+            run_id, "blocked", f"Work item #{work_item.id}: implementation not confirmed by the agent",
             level="warning", work_item_id=work_item.id, branch=branch, detail=result.output,
         )
         return
@@ -485,17 +485,17 @@ def implement_work_item(
         if run_deterministic_autofix(cfg):
             commit_autofix(cfg, branch)
             history.log_event(
-                run_id, "autofix_applied", f"Work item #{work_item.id}: autofix lint/format applicato su {branch}",
+                run_id, "autofix_applied", f"Work item #{work_item.id}: lint/format autofix applied on {branch}",
                 work_item_id=work_item.id, branch=branch,
             )
     except subprocess.CalledProcessError as exc:
-        logger.warning("Work item #%s: autofix lint/format fallito, proseguo comunque: %s", work_item.id, exc.stderr)
+        logger.warning("Work item #%s: lint/format autofix failed; continuing anyway: %s", work_item.id, exc.stderr)
 
-    state.add_note(wit_client, cfg.project, work_item.id, f"Implementazione pushata su {branch}, in attesa di creazione PR manuale")
+    state.add_note(wit_client, cfg.project, work_item.id, f"Implementation pushed to {branch}, awaiting manual PR creation")
     state.add_tag(wit_client, cfg.project, work_item.id, state.TAG_IMPLEMENTED)
-    logger.info("Work item #%s: implementato e pushato su %s, in attesa di PR manuale", work_item.id, branch)
+    logger.info("Work item #%s: implemented and pushed to %s, awaiting manual PR", work_item.id, branch)
     history.log_event(
-        run_id, "implemented", f"Work item #{work_item.id}: implementato e pushato su {branch}, pronto per la PR",
+        run_id, "implemented", f"Work item #{work_item.id}: implemented and pushed to {branch}, ready for the PR",
         work_item_id=work_item.id, branch=branch, detail=_extract_technical_summary(result),
     )
 
@@ -530,17 +530,17 @@ def reconcile_stale_work_items(cfg: Config, wit_client, run_id: int, fresh_ids: 
         normalized_state = str(ado_state or "").strip().casefold()
         completed_externally = normalized_state in _TERMINAL_ADO_STATES
         action = "external_completed" if completed_externally else "external_change"
-        reason = f"spostato allo stato '{ado_state}'" if ado_state else "non piu' leggibile (probabilmente rimosso)"
-        logger.info("Work item #%s: %s su Azure Boards, lo segno come non piu' seguito", work_item_id, reason)
+        reason = f"moved to state '{ado_state}'" if ado_state else "no longer readable (probably removed)"
+        logger.info("Work item #%s: %s in Azure Boards; marking it as no longer tracked", work_item_id, reason)
         try:
             state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
             if completed_externally:
                 state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
         except Exception:
-            logger.warning("Work item #%s: impossibile aggiornare i tag (forse davvero rimosso), procedo comunque", work_item_id)
+            logger.warning("Work item #%s: unable to update tags (it may have been removed); continuing anyway", work_item_id)
         history.log_event(
             run_id, action,
-            f"Work item #{work_item_id}: {reason} su Azure Boards, ingest_loop non lo segue piu'",
+            f"Work item #{work_item_id}: {reason} in Azure Boards; ingest_loop no longer tracks it",
             level="warning", work_item_id=work_item_id,
         )
 
@@ -557,28 +557,28 @@ def main() -> None:
         try:
             candidates = fetch_candidate_work_items(wit_client, cfg)
         except Exception:
-            logger.exception("Impossibile recuperare i work item da Azure Boards, interrompo il run")
+            logger.exception("Unable to retrieve work items from Azure Boards; stopping the run")
             history.log_event(
-                run_id, "error", "Impossibile recuperare i work item da Azure Boards",
+                run_id, "error", "Unable to retrieve work items from Azure Boards",
                 level="error", detail=traceback.format_exc(),
             )
             run_status = "error"
             return
 
-        logger.info("Trovati %d work item candidati", len(candidates))
+        logger.info("Found %d candidate work items", len(candidates))
 
         for work_item in candidates:
             try:
                 tags = state.get_tags(wit_client, work_item.id)
             except Exception:
-                logger.exception("Work item #%s: impossibile leggere i tag, lo salto", work_item.id)
+                logger.exception("Work item #%s: unable to read tags; skipping it", work_item.id)
                 continue
 
             if state.TAG_PR_OPEN in tags:
-                logger.info("Work item #%s: gia' con PR aperta, salto", work_item.id)
+                logger.info("Work item #%s: already has an open PR; skipping it", work_item.id)
                 continue
             if state.TAG_BLOCKED in tags:
-                logger.info("Work item #%s: bloccato, salto", work_item.id)
+                logger.info("Work item #%s: blocked; skipping it", work_item.id)
                 continue
 
             try:
@@ -591,22 +591,22 @@ def main() -> None:
                     if fix:
                         fix_work_item(cfg, wit_client, work_item, run_id, fix["text"])
                     else:
-                        logger.info("Work item #%s: tag fix-requested ma nessun fix pendente, salto", work_item.id)
+                        logger.info("Work item #%s: has fix-requested tag but no pending fix; skipping it", work_item.id)
                 elif state.TAG_IMPLEMENTED in tags:
-                    logger.info("Work item #%s: in fase di verifica, salto", work_item.id)
+                    logger.info("Work item #%s: in verification stage; skipping it", work_item.id)
                 elif state.TAG_PLAN_APPROVED in tags:
                     plan = history.get_plan(work_item.id)
                     implement_work_item(cfg, wit_client, work_item, run_id, plan_text=plan["text"] if plan else None)
                 elif state.TAG_PLAN_READY in tags:
-                    logger.info("Work item #%s: piano generato, in attesa di approvazione, salto", work_item.id)
+                    logger.info("Work item #%s: plan generated and awaiting approval; skipping it", work_item.id)
                 else:
                     generate_plan(cfg, wit_client, work_item, run_id)
             except Exception:
                 logger.exception(
-                    "Work item #%s: errore non gestito, lo salto senza bloccare gli altri ticket", work_item.id
+                    "Work item #%s: unhandled error; skipping it without blocking other tickets", work_item.id
                 )
                 history.log_event(
-                    run_id, "error", f"Work item #{work_item.id}: errore non gestito",
+                    run_id, "error", f"Work item #{work_item.id}: unhandled error",
                     level="error", work_item_id=work_item.id, detail=traceback.format_exc(),
                 )
                 continue
@@ -614,7 +614,7 @@ def main() -> None:
         try:
             reconcile_stale_work_items(cfg, wit_client, run_id, {w.id for w in candidates})
         except Exception:
-            logger.exception("Errore durante la riconciliazione dei ticket usciti dalla WIQL, non blocco il run")
+            logger.exception("Error reconciling tickets no longer returned by WIQL; not blocking the run")
     finally:
         history.finish_run(run_id, run_status)
 

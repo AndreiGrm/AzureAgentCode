@@ -119,7 +119,7 @@ def add_tag(wit_client: WorkItemTrackingClient, project: str, work_item_id: int,
         )
     ]
     wit_client.update_work_item(patch, work_item_id, project=project)
-    logger.info("Work item %s: aggiunto tag %s", work_item_id, tag)
+    logger.info("Work item %s: added tag %s", work_item_id, tag)
 
 
 @retry_once()
@@ -137,7 +137,7 @@ def remove_tag(wit_client: WorkItemTrackingClient, project: str, work_item_id: i
         )
     ]
     wit_client.update_work_item(patch, work_item_id, project=project)
-    logger.info("Work item %s: rimosso tag %s", work_item_id, tag)
+    logger.info("Work item %s: removed tag %s", work_item_id, tag)
 
 
 @retry_once()
@@ -150,4 +150,4 @@ def add_note(wit_client: WorkItemTrackingClient, project: str, work_item_id: int
     """
     patch = [JsonPatchOperation(op="add", path="/fields/System.History", value=text)]
     wit_client.update_work_item(patch, work_item_id, project=project)
-    logger.info("Work item %s: aggiunta nota nella discussione", work_item_id)
+    logger.info("Work item %s: added discussion note", work_item_id)

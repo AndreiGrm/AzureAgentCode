@@ -50,7 +50,7 @@ WHERE [System.TeamProject] = @project
   AND [System.State] NOT IN ('Done', 'Closed', 'Removed')
 """
 
-BOT_SIGNATURE = "\n\n_Risposta automatica dell'agente._"
+BOT_SIGNATURE = "\n\n_Automated agent response._"
 
 _ARTIFACT_LINK_RE = re.compile(r"PullRequestId/[^%]*%2[Ff][^%]*%2[Ff](\d+)$")
 
@@ -164,15 +164,15 @@ def resolve_comment(cfg: Config, git_client, branch: str, work_item_id: int, pr_
     non c'e' piu' bisogno di classificare (l'utente ha gia' deciso), quindi
     si istruisce Claude direttamente ad applicare la correzione."""
     prompt = (
-        f"Stai risolvendo un commento su una pull request Azure DevOps collegata "
-        f"al work item #{work_item_id}. L'utente ha deciso di farlo risolvere a te.\n\n"
-        f"Commento:\n\"\"\"\n{comment_content}\n\"\"\"\n\n"
-        f"Sei sul branch locale '{branch}', che contiene le modifiche della PR.\n\n"
-        "1. Applica la modifica richiesta nel codice.\n"
-        "2. Fai commit con un messaggio chiaro.\n"
-        f"3. Pusha il branch: git push origin {branch}\n"
-        "4. Concludi la risposta con una riga nel formato esatto: FIXED: done "
-        "(oppure FIXED: failed se non riesci ad applicare la correzione)."
+        f"You are resolving a comment on an Azure DevOps pull request linked to "
+        f"work item #{work_item_id}. The user chose for you to resolve it.\n\n"
+        f"Comment:\n\"\"\"\n{comment_content}\n\"\"\"\n\n"
+        f"You are on local branch '{branch}', which contains the PR changes.\n\n"
+        "1. Apply the requested code change.\n"
+        "2. Commit with a clear message.\n"
+        f"3. Push the branch: git push origin {branch}\n"
+        "4. End the response with a line in the exact format: FIXED: done "
+        "(or FIXED: failed if you cannot apply the correction). Respond in English."
     )
     result = run_claude(
         prompt=prompt, cwd=cfg.repo_path, allowed_tools=["Bash", "Read", "Edit"],
@@ -181,15 +181,15 @@ def resolve_comment(cfg: Config, git_client, branch: str, work_item_id: int, pr_
 
     if "FIXED: done" not in result.output:
         history.log_event(
-            run_id, "comment_resolve_failed", f"Ticket #{work_item_id}, thread #{thread_id}: fix non confermato dall'agente",
+            run_id, "comment_resolve_failed", f"Ticket #{work_item_id}, thread #{thread_id}: fix not confirmed by the agent",
             level="warning", work_item_id=work_item_id, pr_id=pr_id, detail=result.output,
         )
         return {"applied": False, "output": result.output}
 
-    reply_to_thread(git_client, cfg, pr_id, thread_id, "Ho applicato la correzione richiesta.")
+    reply_to_thread(git_client, cfg, pr_id, thread_id, "I applied the requested correction.")
     mark_thread_fixed(git_client, cfg, pr_id, thread_id)
     history.log_event(
-        run_id, "comment_resolved", f"Ticket #{work_item_id}, thread #{thread_id}: commento risolto su richiesta dell'utente",
+        run_id, "comment_resolved", f"Ticket #{work_item_id}, thread #{thread_id}: comment resolved at the user's request",
         work_item_id=work_item_id, branch=branch, pr_id=pr_id,
     )
     return {"applied": True, "output": result.output}
@@ -202,7 +202,7 @@ def plan_comment_batch(
     def format_comment(comment: dict) -> str:
         text = f"## Thread #{comment['thread_id']} — {comment['author']}\n{comment['content']}"
         if comment.get("planning_note"):
-            text += f"\n\nNota dell'utente per il piano:\n{comment['planning_note']}"
+            text += f"\n\nUser note for the plan:\n{comment['planning_note']}"
         return text
 
     comment_list = "\n\n".join(format_comment(comment) for comment in comments)
@@ -212,14 +212,14 @@ def plan_comment_batch(
     ).stdout
     graphify_section = get_graphify_context(
         cfg.repo_path,
-        f"Come risolvere i commenti PR del work item #{work_item_id}: {comment_list}",
+        f"How to resolve PR comments for work item #{work_item_id}: {comment_list}",
     )
     prompt = (
-        f"Prepara un piano di correzione per i commenti di review della PR del work item "
-        f"#{work_item_id}, sul branch '{branch}'. Non modificare file, non fare commit e non fare push.\n\n"
-        f"Commenti selezionati:\n{comment_list}\n\n{graphify_section}\n\nDiff della PR:\n{diff}\n\n"
-        "Esamina il diff e i file necessari. Restituisci un piano conciso, organizzato "
-        "per file e thread, indicando le modifiche, i test da eseguire e gli eventuali rischi."
+        f"Prepare a fix plan for PR review comments on work item "
+        f"#{work_item_id}, on branch '{branch}'. Do not modify files, commit, or push.\n\n"
+        f"Selected comments:\n{comment_list}\n\n{graphify_section}\n\nPR diff:\n{diff}\n\n"
+        "Examine the diff and necessary files. Return a concise plan organized "
+        "by file and thread, listing changes, tests to run, and any risks. Respond in English."
     )
     result = run_claude(
         prompt=prompt, cwd=cfg.repo_path, allowed_tools=["Read", "Grep", "Glob"],
@@ -237,13 +237,13 @@ def apply_comment_batch(
         for comment in comments
     )
     prompt = (
-        f"Applica le correzioni approvate per i commenti della PR del work item #{work_item_id}, "
-        f"sul branch '{branch}'.\n\nPiano approvato:\n{plan_text}\n\n"
-        f"Commenti da risolvere:\n{comment_list}\n\n"
-        "Modifica il codice per risolvere tutti i commenti. "
-        "NON fare commit e NON fare push: l'utente deve prima esaminare e approvare esplicitamente "
-        "il commit. Concludi con la riga esatta `CHANGES_APPLIED: done` solo se tutte le modifiche "
-        "sono state applicate; altrimenti `CHANGES_APPLIED: failed`."
+        f"Apply the approved fixes for PR comments on work item #{work_item_id}, "
+        f"on branch '{branch}'.\n\nApproved plan:\n{plan_text}\n\n"
+        f"Comments to resolve:\n{comment_list}\n\n"
+        "Modify the code to resolve all comments. "
+        "Do NOT commit or push: the user must first review and explicitly approve "
+        "the commit. End with the exact line `CHANGES_APPLIED: done` only if all changes "
+        "were applied; otherwise use `CHANGES_APPLIED: failed`. Respond in English."
     )
     result = run_claude(
         prompt=prompt, cwd=cfg.repo_path, allowed_tools=["Read", "Edit"],
@@ -255,11 +255,11 @@ def apply_comment_batch(
 def commit_comment_batch(cfg: Config, work_item_id: int, branch: str, run_id: int) -> dict:
     """Esegue commit e push solo dopo la seconda approvazione dell'utente."""
     prompt = (
-        f"L'utente ha approvato il commit delle correzioni ai commenti della PR del work item "
-        f"#{work_item_id}, sul branch '{branch}'. Controlla git diff, esegui i test mirati "
-        "disponibili, poi fai un unico commit chiaro e pusha con `git push origin "
-        f"{branch}`. Concludi con la riga esatta `COMMITTED: done` solo se commit e push "
-        "sono riusciti; altrimenti `COMMITTED: failed`."
+        f"The user approved the commit for fixes to PR comments on work item "
+        f"#{work_item_id}, on branch '{branch}'. Check git diff, run available targeted "
+        "tests, then make one clear commit and push it with `git push origin "
+        f"{branch}`. End with the exact line `COMMITTED: done` only if the commit and push "
+        "succeeded; otherwise use `COMMITTED: failed`. Respond in English."
     )
     result = run_claude(
         prompt=prompt, cwd=cfg.repo_path, allowed_tools=["Bash", "Read"],
@@ -283,12 +283,12 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
     prompt = (
         f"{agent_body}\n\n"
         "---\n\n"
-        f"# PR da revisionare\n\n"
-        f"Work item #{work_item_id}: {title}\n\nDescrizione:\n{description}\n\n"
-        f"Sei sul branch locale '{branch}'. Usa 'git diff {cfg.base_branch}...{branch}' "
-        "(con il tool Bash) per vedere le modifiche della PR, poi Read/Grep/Glob per "
-        "aprire i file reali quando serve piu' contesto. Rispondi SOLO con il JSON "
-        "richiesto dal contratto di output sopra, nessun testo prima o dopo."
+        f"# PR to review\n\n"
+        f"Work item #{work_item_id}: {title}\n\nDescription:\n{description}\n\n"
+        f"You are on local branch '{branch}'. Use 'git diff {cfg.base_branch}...{branch}' "
+        "(with the Bash tool) to view PR changes, then Read/Grep/Glob to open "
+        "real files when more context is needed. Respond ONLY with the JSON "
+        "required by the output contract above, with no text before or after."
     )
 
     result = run_claude(
@@ -299,7 +299,7 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
     match = re.search(r"\{.*\}", result.output, re.DOTALL)
     if not match:
         history.log_event(
-            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: risposta della synthetic review non interpretabile",
+            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: unparseable synthetic review response",
             level="error", work_item_id=work_item_id, pr_id=pr_id, detail=result.output,
         )
         return {"posted": 0, "failed": 0, "summary": None}
@@ -308,7 +308,7 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
         review = json.loads(match.group(0))
     except json.JSONDecodeError:
         history.log_event(
-            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: JSON della synthetic review non valido",
+            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: invalid synthetic review JSON",
             level="error", work_item_id=work_item_id, pr_id=pr_id, detail=match.group(0),
         )
         return {"posted": 0, "failed": 0, "summary": None}
@@ -342,7 +342,7 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
             posted += 1
         except Exception:
             logger.exception(
-                "Work item #%s / PR #%s: impossibile postare il commento su %s:%s",
+                "Work item #%s / PR #%s: unable to post comment to %s:%s",
                 work_item_id, pr_id, file_path, line,
             )
             failed += 1
@@ -352,13 +352,13 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
     detail_parts = [summary] if summary else []
     if uncertainties:
         detail_parts.append(
-            "Dubbi non pubblicati (bassa confidenza):\n"
+            "Unposted concerns (low confidence):\n"
             + "\n".join(f"- {u.get('topic', '?')}: {u.get('doubt', '')}" for u in uncertainties)
         )
     history.log_event(
         run_id, "pr_checked",
-        f"Work item #{work_item_id} / PR #{pr_id}: synthetic review completata, {posted} commenti pubblicati"
-        + (f", {failed} non pubblicabili" if failed else ""),
+        f"Work item #{work_item_id} / PR #{pr_id}: synthetic review completed, {posted} comments posted"
+        + (f", {failed} could not be posted" if failed else ""),
         work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail="\n\n".join(detail_parts) or None,
     )
     return {"posted": posted, "failed": failed, "summary": summary}
@@ -367,22 +367,22 @@ def run_synthetic_pr_review(cfg: Config, wit_client, git_client, work_item_id: i
 def classify_and_handle_comment(cfg: Config, branch: str, work_item_id: int, comment, run_id: int) -> dict:
     author = comment.author.display_name if comment.author else "reviewer"
     prompt = (
-        f"Stai revisionando un commento su una pull request Azure DevOps collegata "
-        f"al work item #{work_item_id}.\n\n"
-        f"Commento di {author}:\n\"\"\"\n{comment.content}\n\"\"\"\n\n"
-        f"Sei sul branch locale '{branch}', che contiene le modifiche della PR.\n\n"
-        "Classifica il commento:\n"
-        '- "fix" se e\' un fix meccanico non ambiguo (lint, naming, refactor minore, '
-        "richiesta chiara e circoscritta) che puoi applicare con sicurezza.\n"
-        '- "needs_human" se richiede una decisione di giudizio, e\' ambiguo, o proviene '
-        "da un reviewer esterno su un punto non banale.\n\n"
-        'Se la classificazione e\' "fix":\n'
-        "1. Applica la modifica nel codice.\n"
-        "2. Fai commit con un messaggio chiaro.\n"
-        f"3. Pusha il branch: git push origin {branch}\n\n"
-        'Se la classificazione e\' "needs_human": NON modificare il codice.\n\n'
-        "Concludi SEMPRE la risposta con una riga nel formato esatto (JSON su una sola riga):\n"
-        'DECISION_JSON: {"action": "fix|needs_human", "reply": "testo breve da postare come risposta al thread"}'
+        f"You are reviewing a comment on an Azure DevOps pull request linked to "
+        f"work item #{work_item_id}.\n\n"
+        f"Comment from {author}:\n\"\"\"\n{comment.content}\n\"\"\"\n\n"
+        f"You are on local branch '{branch}', which contains the PR changes.\n\n"
+        "Classify the comment:\n"
+        '- "fix" if it is an unambiguous mechanical fix (lint, naming, small refactor, '
+        "or a clear, narrowly-scoped request) that you can safely apply.\n"
+        '- "needs_human" if it requires a judgment call, is ambiguous, or comes '
+        "from an external reviewer on a non-trivial issue.\n\n"
+        'If the classification is "fix":\n'
+        "1. Apply the code change.\n"
+        "2. Commit with a clear message.\n"
+        f"3. Push the branch: git push origin {branch}\n\n"
+        'If the classification is "needs_human": do NOT modify code.\n\n'
+        "Always end the response with a line in the exact format (single-line JSON):\n"
+        'DECISION_JSON: {"action": "fix|needs_human", "reply": "brief text to post as a thread reply"}'
     )
 
     result = run_claude(
@@ -392,17 +392,17 @@ def classify_and_handle_comment(cfg: Config, branch: str, work_item_id: int, com
 
     match = re.search(r"DECISION_JSON:\s*(\{.*\})", result.output)
     if not match:
-        return {"action": "needs_human", "reply": "Non sono riuscito a classificare il commento in modo affidabile: serve revisione umana."}
+        return {"action": "needs_human", "reply": "I could not classify the comment reliably: human review is required."}
     try:
         return json.loads(match.group(1))
     except json.JSONDecodeError:
-        return {"action": "needs_human", "reply": "Risposta dell'agente non interpretabile: serve revisione umana."}
+        return {"action": "needs_human", "reply": "The agent response could not be parsed: human review is required."}
 
 
 def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int, pr_id: int, run_id: int) -> None:
     pr = git_client.get_pull_request(cfg.repo_id, pr_id, project=cfg.project)
     if pr.status != "active":
-        logger.info("Work item #%s / PR #%s: stato '%s', non attiva, salto", work_item_id, pr_id, pr.status)
+        logger.info("Work item #%s / PR #%s: status '%s', not active; skipping it", work_item_id, pr_id, pr.status)
         if pr.status in ("completed", "abandoned"):
             # La PR e' stata mergiata o abbandonata direttamente su Azure
             # DevOps: sposta il ticket nella sezione "Completed" della
@@ -412,13 +412,13 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
             state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_COMPLETED)
             if pr.status == "completed":
                 history.log_event(
-                    run_id, "pr_completed", f"Work item #{work_item_id} / PR #{pr_id}: PR completata (merge)",
+                    run_id, "pr_completed", f"Work item #{work_item_id} / PR #{pr_id}: PR completed (merge)",
                     work_item_id=work_item_id, branch=pr.source_ref_name.replace("refs/heads/", "", 1), pr_id=pr_id,
                 )
             else:
                 state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_ABANDONED)
                 history.log_event(
-                    run_id, "pr_abandoned", f"Work item #{work_item_id} / PR #{pr_id}: PR abbandonata",
+                    run_id, "pr_abandoned", f"Work item #{work_item_id} / PR #{pr_id}: PR abandoned",
                     level="warning", work_item_id=work_item_id,
                     branch=pr.source_ref_name.replace("refs/heads/", "", 1), pr_id=pr_id,
                 )
@@ -428,9 +428,9 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
     try:
         checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        logger.error("Work item #%s / PR #%s: impossibile fare checkout del branch %s: %s", work_item_id, pr_id, branch, exc.stderr)
+        logger.error("Work item #%s / PR #%s: unable to check out branch %s: %s", work_item_id, pr_id, branch, exc.stderr)
         history.log_event(
-            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: impossibile fare checkout del branch {branch}",
+            run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: unable to check out branch {branch}",
             level="error", work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=exc.stderr,
         )
         return
@@ -438,13 +438,13 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
     try:
         if run_deterministic_autofix(cfg):
             commit_autofix(cfg, branch)
-            logger.info("Work item #%s / PR #%s: autofix lint/format applicato", work_item_id, pr_id)
+            logger.info("Work item #%s / PR #%s: lint/format autofix applied", work_item_id, pr_id)
             history.log_event(
-                run_id, "autofix_applied", f"Work item #{work_item_id} / PR #{pr_id}: autofix lint/format applicato",
+                run_id, "autofix_applied", f"Work item #{work_item_id} / PR #{pr_id}: lint/format autofix applied",
                 work_item_id=work_item_id, branch=branch, pr_id=pr_id,
             )
     except subprocess.CalledProcessError as exc:
-        logger.warning("Work item #%s / PR #%s: autofix lint/format fallito, proseguo comunque: %s", work_item_id, pr_id, exc.stderr)
+        logger.warning("Work item #%s / PR #%s: lint/format autofix failed; continuing anyway: %s", work_item_id, pr_id, exc.stderr)
 
     threads = git_client.get_threads(cfg.repo_id, pr_id, project=cfg.project)
 
@@ -457,11 +457,11 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
             continue
 
         logger.info(
-            "Ticket #%s, branch %s, PR #%s, thread #%s: nuovo commento da valutare",
+            "Ticket #%s, branch %s, PR #%s, thread #%s: new comment to evaluate",
             work_item_id, branch, pr_id, thread.id,
         )
         history.log_event(
-            run_id, "classifying", f"Ticket #{work_item_id}, thread #{thread.id}: valutazione commento in corso",
+            run_id, "classifying", f"Ticket #{work_item_id}, thread #{thread.id}: comment evaluation in progress",
             work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=comment.content,
         )
 
@@ -469,11 +469,11 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
             decision = classify_and_handle_comment(cfg, branch, work_item_id, comment, run_id)
         except Exception:
             logger.exception(
-                "Ticket #%s, branch %s, PR #%s, thread #%s: errore durante la classificazione, lo salto",
+                "Ticket #%s, branch %s, PR #%s, thread #%s: error during classification; skipping it",
                 work_item_id, branch, pr_id, thread.id,
             )
             history.log_event(
-                run_id, "error", f"Ticket #{work_item_id}, thread #{thread.id}: errore durante la classificazione",
+                run_id, "error", f"Ticket #{work_item_id}, thread #{thread.id}: error during classification",
                 level="error", work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=traceback.format_exc(),
             )
             continue
@@ -482,29 +482,29 @@ def process_pull_request(cfg: Config, wit_client, git_client, work_item_id: int,
         reply = decision.get("reply") or ""
 
         if action == "fix":
-            reply_to_thread(git_client, cfg, pr_id, thread.id, reply or "Ho applicato una correzione meccanica.")
+            reply_to_thread(git_client, cfg, pr_id, thread.id, reply or "I applied a mechanical fix.")
             mark_thread_fixed(git_client, cfg, pr_id, thread.id)
             logger.info(
-                "Ticket #%s, branch %s, PR #%s, thread #%s: fix meccanico applicato",
+                "Ticket #%s, branch %s, PR #%s, thread #%s: mechanical fix applied",
                 work_item_id, branch, pr_id, thread.id,
             )
             history.log_event(
-                run_id, "mechanical_fix", f"Ticket #{work_item_id}, thread #{thread.id}: fix meccanico applicato",
+                run_id, "mechanical_fix", f"Ticket #{work_item_id}, thread #{thread.id}: mechanical fix applied",
                 work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=reply,
             )
         else:
             reply_to_thread(
                 git_client, cfg, pr_id, thread.id,
-                reply or "Questo commento richiede una revisione umana, non ho applicato modifiche.",
+                reply or "This comment requires human review; I did not apply changes.",
             )
             state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
             logger.info(
-                "Ticket #%s, branch %s, PR #%s, thread #%s: richiede revisione umana, work item bloccato",
+                "Ticket #%s, branch %s, PR #%s, thread #%s: requires human review; work item blocked",
                 work_item_id, branch, pr_id, thread.id,
             )
             history.log_event(
                 run_id, "needs_human",
-                f"Ticket #{work_item_id}, thread #{thread.id}: richiede revisione umana, work item bloccato",
+                f"Ticket #{work_item_id}, thread #{thread.id}: requires human review; work item blocked",
                 level="warning", work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=reply,
             )
             # "fermati": non processiamo altri thread di questa PR in questo run.
@@ -532,46 +532,46 @@ def main() -> None:
             try:
                 work_item_ids = find_open_pr_work_items(wit_client, cfg)
             except Exception:
-                logger.exception("Impossibile recuperare i work item con PR aperta, interrompo il run")
+                logger.exception("Unable to retrieve work items with open PRs; stopping the run")
                 history.log_event(
-                    run_id, "error", "Impossibile recuperare i work item con PR aperta",
+                    run_id, "error", "Unable to retrieve work items with open PRs",
                     level="error", detail=traceback.format_exc(),
                 )
                 run_status = "error"
                 return
 
-        logger.info("Trovati %d work item con PR aperta", len(work_item_ids))
+        logger.info("Found %d work items with open PRs", len(work_item_ids))
 
         for work_item_id in work_item_ids:
             try:
                 tags = state.get_tags(wit_client, work_item_id)
             except Exception:
-                logger.exception("Work item #%s: impossibile leggere i tag, lo salto", work_item_id)
+                logger.exception("Work item #%s: unable to read tags; skipping it", work_item_id)
                 continue
 
             if state.TAG_BLOCKED in tags:
-                logger.info("Work item #%s: bloccato, salto", work_item_id)
+                logger.info("Work item #%s: blocked; skipping it", work_item_id)
                 continue
 
             try:
                 pr_id = find_pr_id_for_work_item(wit_client, work_item_id)
             except Exception:
-                logger.exception("Work item #%s: impossibile trovare la PR collegata, lo salto", work_item_id)
+                logger.exception("Work item #%s: unable to find linked PR; skipping it", work_item_id)
                 continue
 
             if pr_id is None:
-                logger.warning("Work item #%s: taggato agent:pr-open ma nessuna PR collegata trovata, salto", work_item_id)
+                logger.warning("Work item #%s: tagged agent:pr-open but no linked PR found; skipping it", work_item_id)
                 continue
 
             try:
                 process_pull_request(cfg, wit_client, git_client, work_item_id, pr_id, run_id)
             except Exception:
                 logger.exception(
-                    "Work item #%s / PR #%s: errore non gestito, lo salto senza bloccare gli altri ticket",
+                    "Work item #%s / PR #%s: unhandled error; skipping it without blocking other tickets",
                     work_item_id, pr_id,
                 )
                 history.log_event(
-                    run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: errore non gestito",
+                    run_id, "error", f"Work item #{work_item_id} / PR #{pr_id}: unhandled error",
                     level="error", work_item_id=work_item_id, pr_id=pr_id, detail=traceback.format_exc(),
                 )
                 continue

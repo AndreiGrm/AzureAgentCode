@@ -24,7 +24,7 @@ def retry_once(delay_seconds: float = 2.0) -> Callable[[Callable[..., T]], Calla
                 return func(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 - vogliamo ritentare qualsiasi errore di rete/API
                 logger.warning(
-                    "Chiamata a %s fallita (%s): nuovo tentativo dopo %.1fs",
+                    "Call to %s failed (%s): retrying after %.1fs",
                     func.__name__, exc, delay_seconds,
                 )
                 time.sleep(delay_seconds)

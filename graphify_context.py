@@ -13,11 +13,11 @@ def get_graphify_context(repo_path: str, question: str) -> str:
     esplicito, lasciando al chiamante l'analisi Read/Grep/Glob."""
     graph_path = Path(repo_path) / "graphify-out" / "graph.json"
     if not graph_path.is_file():
-        return "Graphify non disponibile: graphify-out/graph.json non esiste. Prosegui con Read, Grep e Glob."
+        return "Graphify unavailable: graphify-out/graph.json does not exist. Continue with Read, Grep, and Glob."
 
     executable = shutil.which("graphify")
     if executable is None:
-        return "Graphify non disponibile: comando 'graphify' non trovato nel PATH. Prosegui con Read, Grep e Glob."
+        return "Graphify unavailable: the 'graphify' command was not found on PATH. Continue with Read, Grep, and Glob."
 
     try:
         result = subprocess.run(
@@ -29,14 +29,14 @@ def get_graphify_context(repo_path: str, question: str) -> str:
             timeout=60,
         )
     except subprocess.TimeoutExpired:
-        return "Graphify non disponibile: la query ha superato 60 secondi. Prosegui con Read, Grep e Glob."
+        return "Graphify unavailable: the query exceeded 60 seconds. Continue with Read, Grep, and Glob."
     except OSError as exc:
-        return f"Graphify non disponibile: impossibile avviare il comando ({exc}). Prosegui con Read, Grep e Glob."
+        return f"Graphify unavailable: unable to start the command ({exc}). Continue with Read, Grep, and Glob."
 
     if result.returncode != 0:
         error = (result.stderr or result.stdout).strip()
         return (
-            f"Graphify non disponibile: query fallita ({error[:500]}). "
-            "Prosegui con Read, Grep e Glob."
+            f"Graphify unavailable: query failed ({error[:500]}). "
+            "Continue with Read, Grep, and Glob."
         )
-    return f"Contesto Graphify (usalo come primo riferimento, poi verifica nei file):\n{result.stdout[:_MAX_OUTPUT_CHARS]}"
+    return f"Graphify context (use it as the first reference, then verify it in the files):\n{result.stdout[:_MAX_OUTPUT_CHARS]}"

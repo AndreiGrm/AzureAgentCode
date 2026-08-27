@@ -76,4 +76,4 @@ def commit_autofix(cfg: Config, branch: str) -> None:
         ["git", "push", "origin", branch],
         cwd=cfg.repo_path, check=True, capture_output=True, text=True,
     )
-    logger.info("Autofix committato e pushato su %s", branch)
+    logger.info("Autofix committed and pushed to %s", branch)

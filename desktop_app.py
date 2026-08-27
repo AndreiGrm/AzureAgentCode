@@ -4,6 +4,7 @@ from __future__ import annotations
 import threading
 import time
 import sys
+import subprocess
 from socket import AF_INET, SOCK_STREAM, socket
 
 import uvicorn
@@ -17,6 +18,22 @@ PORT = 8765
 URL = f"http://{HOST}:{PORT}"
 
 
+class DesktopApi:
+    """Operazioni native invocate dalla UI dopo un download già verificato."""
+
+    def __init__(self, window) -> None:
+        self.window = window
+
+    def install_pending_update(self) -> bool:
+        installer = getattr(app.state, "pending_update_installer", None)
+        if not installer:
+            raise RuntimeError("No verified update is available to install.")
+        command = f'ping 127.0.0.1 -n 3 > nul & start "" "{installer}" /SP- /SILENT /NORESTART'
+        subprocess.Popen([r"C:\Windows\System32\cmd.exe", "/c", command])
+        self.window.destroy()
+        return True
+
+
 def dashboard_is_running() -> bool:
     with socket(AF_INET, SOCK_STREAM) as client:
         return client.connect_ex((HOST, PORT)) == 0
@@ -27,7 +44,7 @@ def wait_for_dashboard() -> None:
         if dashboard_is_running():
             return
         time.sleep(0.1)
-    raise RuntimeError("La dashboard non si e' avviata sulla porta 8765.")
+    raise RuntimeError("The dashboard did not start on port 8765.")
 
 
 def main() -> None:
@@ -38,7 +55,7 @@ def main() -> None:
         elif worker == "review":
             from review_loop import main as worker_main
         else:
-            raise ValueError(f"Worker sconosciuto: {worker}")
+            raise ValueError(f"Unknown worker: {worker}")
         worker_main()
         return
 
@@ -57,6 +74,7 @@ def main() -> None:
         height=960,
         min_size=(1000, 700),
     )
+    window.expose(DesktopApi(window).install_pending_update)
     window.events.closed += lambda: setattr(server, "should_exit", True)
     webview.start(icon=str(resource_dir() / "dashboard.ico"))
     server_thread.join(timeout=10)

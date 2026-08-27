@@ -24,7 +24,7 @@ UninstallDisplayIcon={app}\{#AppExeName}
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Crea un'icona sul desktop"; GroupDescription: "Scelte aggiuntive:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional tasks:"; Flags: unchecked
 
 [Files]
 Source: "dist-release\Azure DevOps Agent Dashboard\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -34,4 +34,4 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Avvia {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

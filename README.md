@@ -167,6 +167,11 @@ la versione installata con l'ultima GitHub Release. Dopo aver pubblicato una
 release, il pulsante **Apri download** porta alla pagina da cui installare la
 nuova versione.
 
+Quando l'app desktop installata trova un nuovo `Setup.exe`, il pulsante
+**Scarica e installa** scarica l'installer direttamente dalla Release, verifica
+l'hash SHA-256 fornito da GitHub, chiude l'app e avvia l'installazione. I dati
+in `%LOCALAPPDATA%\Azure DevOps Agent Dashboard` non vengono rimossi.
+
 ### Avvio diagnostico nel browser
 
 ```bash

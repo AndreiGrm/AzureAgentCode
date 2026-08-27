@@ -15,6 +15,7 @@ dashboard e' aperta, il lock non se ne accorge: evita di farlo.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -126,7 +127,7 @@ async def _azure_devops_auth_error_handler(_request: Request, exc: AzureDevOpsAu
     """Gestisce errori di autenticazione Azure DevOps: PAT scaduto, non valido o mancante."""
     return JSONResponse(
         status_code=401,
-        content={"detail": f"Errore di autenticazione Azure DevOps: {exc}. Verifica che il Personal Access Token sia valido e non scaduto."}
+        content={"detail": f"Azure DevOps authentication error: {exc}. Check that the Personal Access Token is valid and has not expired."}
     )
 
 
@@ -135,7 +136,7 @@ async def _azure_devops_service_error_handler(_request: Request, exc: AzureDevOp
     """Gestisce errori dal servizio Azure DevOps (policy, permessi, regole del progetto)."""
     return JSONResponse(
         status_code=400,
-        content={"detail": f"Errore Azure DevOps: {exc}"}
+        content={"detail": f"Azure DevOps error: {exc}"}
     )
 
 
@@ -144,7 +145,7 @@ async def _azure_devops_client_error_handler(_request: Request, exc: AzureDevOps
     """Gestisce errori generici del client Azure DevOps (connessione, timeout, richieste malformate)."""
     return JSONResponse(
         status_code=502,
-        content={"detail": f"Errore di comunicazione con Azure DevOps: {exc}"}
+        content={"detail": f"Azure DevOps communication error: {exc}"}
     )
 
 
@@ -255,9 +256,9 @@ def _optional_positive_int(value: str, key: str) -> int | None:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise HTTPException(400, detail=f"Il campo '{key}' deve essere un numero intero positivo") from exc
+        raise HTTPException(400, detail=f"Field '{key}' must be a positive integer") from exc
     if parsed <= 0:
-        raise HTTPException(400, detail=f"Il campo '{key}' deve essere maggiore di zero")
+        raise HTTPException(400, detail=f"Field '{key}' must be greater than zero")
     return parsed
 
 
@@ -273,19 +274,23 @@ def api_get_settings() -> list[dict]:
 def _version_key(version: str) -> tuple[int, ...]:
     normalized = version.strip().lstrip("vV").split("-", 1)[0]
     if not normalized:
-        raise ValueError("Versione vuota")
+        raise ValueError("Empty version")
     return tuple(int(part) for part in normalized.split("."))
 
 
 @app.get("/api/app-update")
 def api_app_update() -> dict:
     url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
+    token = os.environ.get("GITHUB_RELEASE_TOKEN", "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Azure-DevOps-Agent-Dashboard",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = UrlRequest(
         url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "Azure-DevOps-Agent-Dashboard",
-        },
+        headers=headers,
     )
     try:
         with urlopen(request, timeout=10) as response:
@@ -298,27 +303,105 @@ def api_app_update() -> dict:
                 "update_available": False,
                 "release_url": "",
                 "release_name": "",
+                "access_required": not bool(token),
+                "installer_available": False,
             }
-        raise HTTPException(502, detail=f"GitHub ha risposto con HTTP {exc.code}") from exc
+        raise HTTPException(502, detail=f"GitHub returned HTTP {exc.code}") from exc
     except URLError as exc:
-        raise HTTPException(503, detail=f"Impossibile contattare GitHub: {exc.reason}") from exc
+        raise HTTPException(503, detail=f"Unable to contact GitHub: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
-        raise HTTPException(502, detail="GitHub ha restituito una release non valida") from exc
+        raise HTTPException(502, detail="GitHub returned an invalid release") from exc
 
     latest_version = str(release.get("tag_name", "")).strip()
     if not latest_version:
-        raise HTTPException(502, detail="La release GitHub non contiene un tag versione")
+        raise HTTPException(502, detail="The GitHub release does not contain a version tag")
     try:
         update_available = _version_key(latest_version) > _version_key(APP_VERSION)
     except ValueError as exc:
-        raise HTTPException(502, detail=f"Tag release non valido: {latest_version}") from exc
+        raise HTTPException(502, detail=f"Invalid release tag: {latest_version}") from exc
     return {
         "current_version": APP_VERSION,
         "latest_version": latest_version,
         "update_available": update_available,
         "release_url": release.get("html_url", ""),
         "release_name": release.get("name") or latest_version,
+        "access_required": False,
+        "installer_available": _release_installer(release) is not None,
     }
+
+
+def _release_installer(release: dict) -> dict | None:
+    return next(
+        (
+            asset for asset in release.get("assets", [])
+            if asset.get("name", "").lower().endswith(".exe")
+            and "setup" in asset.get("name", "").lower()
+        ),
+        None,
+    )
+
+
+@app.post("/api/app-update/download")
+def api_download_app_update() -> dict:
+    """Scarica e verifica l'installer prima di chiudere l'app per aggiornarsi."""
+    if not getattr(sys, "frozen", False):
+        raise HTTPException(409, detail="Direct installation is available only in the installed desktop app")
+
+    update = api_app_update()
+    if update["access_required"]:
+        raise HTTPException(403, detail="A GitHub token with access to private Releases is required")
+    if not update["update_available"]:
+        raise HTTPException(409, detail="No newer update is available")
+
+    token = os.environ.get("GITHUB_RELEASE_TOKEN", "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Azure-DevOps-Agent-Dashboard",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        with urlopen(
+            UrlRequest(
+                f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest",
+                headers=headers,
+            ),
+            timeout=10,
+        ) as response:
+            release = json.load(response)
+    except (HTTPError, URLError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, detail=f"Unable to read the Release installer: {exc}") from exc
+
+    asset = _release_installer(release)
+    if asset is None:
+        raise HTTPException(502, detail="The Release does not contain a Setup.exe installer")
+    digest = str(asset.get("digest", ""))
+    download_url = asset.get("browser_download_url", "")
+    if not digest.startswith("sha256:") or not download_url:
+        raise HTTPException(502, detail="The Release does not expose the installer download and SHA-256 hash")
+
+    updates_dir = data_dir() / "updates"
+    updates_dir.mkdir(parents=True, exist_ok=True)
+    destination = updates_dir / asset["name"]
+    temporary = destination.with_suffix(".download")
+    try:
+        with urlopen(UrlRequest(download_url, headers=headers), timeout=60) as response, open(temporary, "wb") as output:
+            digest_hasher = hashlib.sha256()
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
+                digest_hasher.update(chunk)
+        if digest_hasher.hexdigest().lower() != digest.removeprefix("sha256:").lower():
+            raise HTTPException(502, detail="SHA-256 verification failed: installer was not started")
+        os.replace(temporary, destination)
+    except HTTPException:
+        temporary.unlink(missing_ok=True)
+        raise
+    except (OSError, URLError) as exc:
+        temporary.unlink(missing_ok=True)
+        raise HTTPException(503, detail=f"Update download failed: {exc}") from exc
+
+    app.state.pending_update_installer = str(destination)
+    return {"version": update["latest_version"], "installer_name": asset["name"]}
 
 
 @app.get("/api/token-budget")
@@ -340,13 +423,13 @@ def api_update_settings(body: SettingsUpdate) -> list[dict]:
             # Campo segreto lasciato vuoto: non toccare il PAT esistente.
             continue
         if required and not value:
-            raise HTTPException(400, detail=f"Il campo '{key}' e' obbligatorio")
+            raise HTTPException(400, detail=f"Field '{key}' is required")
         if key in {"AGENT_MAX_OUTPUT_TOKENS", "AGENT_TOKEN_BUDGET"}:
             _optional_positive_int(value, key)
         if key == "AGENT_PROVIDER" and value not in {"claude_sdk", "command", "copilot_cli"}:
             raise HTTPException(
                 400,
-                detail="AGENT_PROVIDER deve essere 'claude_sdk', 'command' oppure 'copilot_cli'",
+                detail="AGENT_PROVIDER must be 'claude_sdk', 'command', or 'copilot_cli'",
             )
         updates[key] = value
 
@@ -369,7 +452,7 @@ def api_dashboard(
     search: str = "",
 ) -> dict:
     if completed_from and completed_to and completed_from > completed_to:
-        raise HTTPException(400, detail="La data iniziale deve precedere la data finale")
+        raise HTTPException(400, detail="The start date must precede the end date")
 
     completed_items = history.get_completed_work_items(
         str(completed_from) if completed_from else None,
@@ -378,7 +461,7 @@ def api_dashboard(
     if completion_action != "all":
         allowed_actions = {"pr_completed", "closed", "external_completed"}
         if completion_action not in allowed_actions:
-            raise HTTPException(400, detail="Filtro stato completamento non valido")
+            raise HTTPException(400, detail="Invalid completion status filter")
         completed_items = [
             item for item in completed_items if item["completed_action"] == completion_action
         ]
@@ -406,7 +489,7 @@ def api_dashboard(
         fields = fields_by_id.get(item["work_item_id"], {})
         story_points = fields.get("Microsoft.VSTS.Scheduling.StoryPoints")
         item_type = fields.get("System.WorkItemType", "")
-        title = fields.get("System.Title", "(titolo non disponibile)")
+        title = fields.get("System.Title", "(title unavailable)")
         if work_item_type != "all" and item_type.lower() != work_item_type.lower():
             continue
         if normalized_search and normalized_search not in f"{item['work_item_id']} {title}".lower():
@@ -441,14 +524,14 @@ def api_history(limit: int = 200, work_item_id: int | None = None) -> list[dict]
 @app.get("/api/notifications")
 def api_notifications(limit: int = 50) -> dict:
     notification_actions = {
-        "plan_ready": "Piano pronto da approvare",
-        "implemented": "PBI pronto per le verifiche tecniche",
-        "quality_passed": "Verifiche tecniche superate",
-        "quality_failed": "Verifiche tecniche da risolvere",
-        "pr_opened": "PR aperta",
-        "blocked": "PBI bloccato",
-        "error": "Errore nel flusso PBI",
-        "pr_completed": "PR completata",
+        "plan_ready": "Plan ready for approval",
+        "implemented": "PBI ready for technical checks",
+        "quality_passed": "Technical checks passed",
+        "quality_failed": "Technical checks need resolution",
+        "pr_opened": "PR opened",
+        "blocked": "PBI blocked",
+        "error": "PBI workflow error",
+        "pr_completed": "PR completed",
     }
     for event in history.get_history(limit=500):
         label = notification_actions.get(event["action"])
@@ -469,13 +552,13 @@ def api_notifications(limit: int = 50) -> dict:
 @app.get("/api/attention")
 def api_attention() -> list[dict]:
     reasons = {
-        "plan_ready": "Piano da approvare",
-        "implemented": "Esegui le verifiche tecniche",
-        "quality_failed": "Verifiche tecniche da risolvere",
-        "quality_passed": "Pronto per creare la PR",
-        "pr_opened": "PR aperta: controlla review e commenti",
-        "blocked": "PBI bloccato",
-        "error": "Errore da analizzare",
+        "plan_ready": "Approve the plan",
+        "implemented": "Run technical checks",
+        "quality_failed": "Technical checks need resolution",
+        "quality_passed": "Ready to create the PR",
+        "pr_opened": "PR opened: review comments",
+        "blocked": "PBI blocked",
+        "error": "Error to investigate",
     }
     items = []
     for ticket in history.get_tickets(limit=200):
@@ -524,7 +607,7 @@ def api_automatic_ingest_status() -> dict:
 def api_run_log(run_id: int) -> str:
     run = history.get_run(run_id)
     if run is None:
-        raise HTTPException(404, detail="Run non trovata")
+        raise HTTPException(404, detail="Run not found")
     log_path = LOGS_DIR / f"{run['script']}_{run_id}.log"
     if not log_path.exists():
         return ""
@@ -542,7 +625,7 @@ def _start_script_process(script: str, extra_env: dict | None = None) -> dict:
     """
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo: {_active['script']}")
+        raise HTTPException(409, detail=f"A run is already active: {_active['script']}")
 
     run_id = history.start_run(script)
 
@@ -577,18 +660,18 @@ def _start_script_process(script: str, extra_env: dict | None = None) -> dict:
 @app.post("/api/run/{script}")
 def api_trigger_run(script: str) -> dict:
     if script not in SCRIPTS:
-        raise HTTPException(404, detail=f"Script sconosciuto: {script}")
+        raise HTTPException(404, detail=f"Unknown script: {script}")
     return _start_script_process(script)
 
 
 @app.post("/api/stop/{script}")
 def api_stop_run(script: str) -> dict:
     if script not in SCRIPTS:
-        raise HTTPException(404, detail=f"Script sconosciuto: {script}")
+        raise HTTPException(404, detail=f"Unknown script: {script}")
 
     _reconcile_active_process()
     if _active["script"] != script or _active["process"] is None:
-        raise HTTPException(409, detail=f"Nessun run attivo per '{script}'")
+        raise HTTPException(409, detail=f"No active run for '{script}'")
 
     proc = _active["process"]
     run_id = _active["run_id"]
@@ -600,7 +683,7 @@ def api_stop_run(script: str) -> dict:
     if run_id is not None:
         history.finish_run(run_id, "stopped")
         history.log_event(
-            run_id, "stopped", f"Run {script} interrotto manualmente dalla dashboard",
+            run_id, "stopped", f"{script} run stopped manually from the dashboard",
             level="warning", work_item_id=work_item_id,
         )
 
@@ -630,7 +713,7 @@ def api_block_work_item(work_item_id: int) -> dict:
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_BLOCKED)
     _log_manual_action(
-        "blocked", f"Work item #{work_item_id}: bloccato manualmente dalla dashboard",
+        "blocked", f"Work item #{work_item_id}: blocked manually from the dashboard",
         work_item_id=work_item_id, level="warning",
     )
     return {"work_item_id": work_item_id, "tags": sorted(state.get_tags(wit_client, work_item_id))}
@@ -651,12 +734,12 @@ def api_close_work_item(work_item_id: int) -> dict:
         if "does not exist" in str(exc) or "TF401232" in str(exc):
             raise HTTPException(
                 404,
-                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi."
+                detail=f"Work item #{work_item_id} no longer exists in Azure DevOps or you do not have permission to access it."
             )
-        raise HTTPException(400, detail=f"Impossibile chiudere il work item: {exc}")
+        raise HTTPException(400, detail=f"Unable to close the work item: {exc}")
     
     _log_manual_action(
-        "closed", f"Work item #{work_item_id}: chiuso manualmente dalla dashboard",
+        "closed", f"Work item #{work_item_id}: closed manually from the dashboard",
         work_item_id=work_item_id, level="warning",
     )
     return {"work_item_id": work_item_id, "tags": sorted(state.get_tags(wit_client, work_item_id))}
@@ -673,7 +756,7 @@ def api_delete_work_item(work_item_id: int) -> dict:
     if active_script is not None:
         raise HTTPException(
             409,
-            detail=f"Non puoi eliminare un ticket mentre {active_script} e' in esecuzione",
+            detail=f"You cannot delete a ticket while {active_script} is running",
         )
 
     cfg = load_config()
@@ -684,12 +767,12 @@ def api_delete_work_item(work_item_id: int) -> dict:
         if "does not exist" in str(exc) or "TF401232" in str(exc):
             raise HTTPException(
                 404,
-                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi.",
+                detail=f"Work item #{work_item_id} no longer exists in Azure DevOps or you do not have permission to access it.",
             ) from exc
-        raise HTTPException(400, detail=f"Impossibile eliminare il work item: {exc}") from exc
+        raise HTTPException(400, detail=f"Unable to delete the work item: {exc}") from exc
 
     _log_manual_action(
-        "deleted", f"Work item #{work_item_id}: spostato nel cestino Azure Boards dalla dashboard",
+        "deleted", f"Work item #{work_item_id}: moved to the Azure Boards recycle bin from the dashboard",
         work_item_id=work_item_id, level="warning",
     )
     return {"work_item_id": work_item_id, "deleted": True}
@@ -711,12 +794,12 @@ def api_reopen_work_item(work_item_id: int) -> dict:
         if "does not exist" in str(exc) or "TF401232" in str(exc):
             raise HTTPException(
                 404,
-                detail=f"Il work item #{work_item_id} non esiste più su Azure DevOps o non hai i permessi per accedervi."
+                detail=f"Work item #{work_item_id} no longer exists in Azure DevOps or you do not have permission to access it."
             )
-        raise HTTPException(400, detail=f"Impossibile riaprire il work item: {exc}")
+        raise HTTPException(400, detail=f"Unable to reopen the work item: {exc}")
     
     _log_manual_action(
-        "reopened", f"Work item #{work_item_id}: riaperto manualmente dalla dashboard",
+        "reopened", f"Work item #{work_item_id}: reopened manually from the dashboard",
         work_item_id=work_item_id,
     )
     return {"work_item_id": work_item_id, "tags": sorted(state.get_tags(wit_client, work_item_id))}
@@ -728,7 +811,7 @@ def api_restart_work_item_from_scratch(work_item_id: int) -> dict:
     cancellazione di PR e branch, e avvia una nuova generazione del piano."""
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
@@ -757,7 +840,7 @@ def api_restart_work_item_from_scratch(work_item_id: int) -> dict:
         except subprocess.CalledProcessError as exc:
             raise HTTPException(
                 409,
-                detail=f"Impossibile eliminare il branch locale {branch}: {exc.stderr}",
+                detail=f"Unable to delete local branch {branch}: {exc.stderr}",
             )
 
     for tag in (
@@ -774,7 +857,7 @@ def api_restart_work_item_from_scratch(work_item_id: int) -> dict:
         state.remove_tag(wit_client, cfg.project, work_item_id, tag)
     _log_manual_action(
         "restart_requested",
-        f"Work item #{work_item_id}: ciclo azzerato e nuova pianificazione richiesta",
+        f"Work item #{work_item_id}: cycle reset and new planning requested",
         work_item_id=work_item_id, branch=branch,
     )
     run = _start_script_process("ingest")
@@ -806,7 +889,7 @@ def api_create_pr_with_autocomplete(work_item_id: int) -> dict:
 def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     connection = get_connection(cfg)
@@ -815,25 +898,25 @@ def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
 
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_IMPLEMENTED not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non e' nello stato 'implemented'")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} is not in the 'implemented' state")
 
     branch = history.get_branch_for_work_item(work_item_id)
     if branch is None:
-        raise HTTPException(409, detail=f"Nessun branch noto per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No known branch for work item #{work_item_id}")
 
     try:
         review_loop.checkout_pr_branch(cfg, branch)
         commit_sha = quality_checks.current_commit(cfg)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile preparare il branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to prepare branch {branch}: {exc.stderr}")
 
     quality_run = history.get_latest_quality_run(work_item_id)
     if quality_run is None:
-        raise HTTPException(409, detail="Esegui prima le verifiche tecniche obbligatorie")
+        raise HTTPException(409, detail="Run the required technical checks first")
     if quality_run["status"] != "passed":
-        raise HTTPException(409, detail="Le verifiche tecniche non sono tutte superate")
+        raise HTTPException(409, detail="Not all technical checks have passed")
     if quality_run["commit_sha"] != commit_sha:
-        raise HTTPException(409, detail="Il branch e' cambiato dopo le verifiche: eseguile di nuovo")
+        raise HTTPException(409, detail="The branch changed after the checks: run them again")
 
     item = wit_client.get_work_item(work_item_id, fields=["System.Title"])
     title = item.fields.get("System.Title", f"Work item #{work_item_id}")
@@ -848,9 +931,9 @@ def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
     try:
         created = git_client.create_pull_request(pr_to_create, cfg.repo_id, project=cfg.project)
     except AzureDevOpsAuthenticationError:
-        raise HTTPException(401, detail="Non sei autenticato su Azure DevOps. Verifica il Personal Access Token nelle impostazioni.")
+        raise HTTPException(401, detail="You are not authenticated with Azure DevOps. Check the Personal Access Token in Settings.")
     except AzureDevOpsServiceError as exc:
-        raise HTTPException(400, detail=f"Impossibile creare la PR: {exc}")
+        raise HTTPException(400, detail=f"Unable to create the PR: {exc}")
     
     if auto_complete:
         try:
@@ -870,31 +953,31 @@ def _create_pr(work_item_id: int, *, auto_complete: bool) -> dict:
             # La PR e' stata creata ma l'autocomplete non e' stato impostato.
             # Informiamo l'utente ma non blocchiamo: la PR esiste comunque.
             logging.warning(
-                "PR #%s creata ma autocomplete non impostato: %s",
+                "PR #%s created but autocomplete was not set: %s",
                 created.pull_request_id, exc
             )
             raise HTTPException(
                 400,
-                detail=f"PR creata (#{created.pull_request_id}) ma impossibile impostare auto-complete: {exc}. "
-                       "Puoi impostarlo manualmente dalla pagina della PR su Azure DevOps."
+                detail=f"PR created (#{created.pull_request_id}) but unable to enable auto-complete: {exc}. "
+                       "You can enable it manually on the PR page in Azure DevOps."
             )
 
     state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_IMPLEMENTED)
     state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_ABANDONED)
     state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_PR_OPEN)
-    state.add_note(wit_client, cfg.project, work_item_id, f"PR #{created.pull_request_id} aperta manualmente dalla dashboard")
+    state.add_note(wit_client, cfg.project, work_item_id, f"PR #{created.pull_request_id} opened manually from the dashboard")
 
     pr_url = f"{cfg.org_url}/{cfg.project}/_git/{cfg.repo_id}/pullrequest/{created.pull_request_id}"
     _log_manual_action(
         "pr_opened",
-        f"Work item #{work_item_id}: PR aperta manualmente"
-        f"{' con auto-completamento' if auto_complete else ''} ({pr_url})",
+        f"Work item #{work_item_id}: PR opened manually"
+        f"{' with auto-complete' if auto_complete else ''} ({pr_url})",
         work_item_id=work_item_id, branch=branch, pr_id=created.pull_request_id,
     )
     history.add_notification(
         f"pr-opened:{created.pull_request_id}",
         "pr-opened",
-        f"PR #{created.pull_request_id} pronta per il ticket #{work_item_id}",
+        f"PR #{created.pull_request_id} ready for ticket #{work_item_id}",
         work_item_id,
     )
     return {
@@ -928,14 +1011,14 @@ _AZURE_COMMUNICATION_MODES = {
 
 def _workflow_summary(settings: dict) -> str:
     routing = {
-        "copilot_then_claude": "Copilot prova per primo; Claude subentra solo dopo un errore, un blocco dichiarato o verifiche fallite.",
-        "claude_only": "Claude riceve direttamente ogni attività AI.",
-        "copilot_only": "Copilot riceve le attività AI; non è previsto il passaggio automatico a Claude.",
+        "copilot_then_claude": "Copilot tries first; Claude takes over only after an error, a declared blocker, or failed checks.",
+        "claude_only": "Claude receives every AI task directly.",
+        "copilot_only": "Copilot receives AI tasks; no automatic handoff to Claude is planned.",
     }[settings["routing_mode"]]
     azure = {
-        "approval_required": "Azure DevOps viene aggiornato automaticamente per tag e note; l'apertura della PR richiede la tua approvazione.",
-        "automatic_pr": "Azure DevOps viene aggiornato automaticamente e la PR viene aperta dopo le verifiche.",
-        "manual_only": "Nessuna comunicazione Azure DevOps automatica oltre alla lettura; tag, note e PR restano manuali.",
+        "approval_required": "Azure DevOps is automatically updated with tags and notes; opening the PR requires your approval.",
+        "automatic_pr": "Azure DevOps is automatically updated and the PR is opened after checks.",
+        "manual_only": "No automatic Azure DevOps communication beyond reading; tags, notes, and PRs remain manual.",
     }[settings["azure_communication"]]
     return f"{routing} {azure}"
 
@@ -948,33 +1031,33 @@ def _apply_workflow_chat_request(text: str, settings: dict) -> tuple[dict, str]:
 
     if "claude" in normalized and any(term in normalized for term in ("solo", "sempre", "direttamente")):
         routing_mode = "claude_only"
-        changes.append("Claude come agente unico")
+        changes.append("Claude as the only agent")
     elif "copilot" in normalized and "claude" in normalized and any(
         term in normalized for term in ("prima", "fallback", "poi")
     ):
         routing_mode = "copilot_then_claude"
-        changes.append("Copilot prima, Claude come fallback")
+        changes.append("Copilot first, Claude as fallback")
     elif "copilot" in normalized and any(term in normalized for term in ("solo", "unico")):
         routing_mode = "copilot_only"
-        changes.append("Copilot come agente unico")
+        changes.append("Copilot as the only agent")
 
     if any(term in normalized for term in ("approvazione", "approvare", "conferma")):
         azure_communication = "approval_required"
-        changes.append("approvazione richiesta prima della PR")
+        changes.append("approval required before the PR")
     elif any(term in normalized for term in ("pr automatica", "apri automaticamente", "aprire automaticamente")):
         azure_communication = "automatic_pr"
-        changes.append("PR automatica dopo le verifiche")
+        changes.append("automatic PR after checks")
     elif any(term in normalized for term in ("azure manuale", "solo manuale", "non comunicare")):
         azure_communication = "manual_only"
-        changes.append("comunicazioni Azure DevOps solo manuali")
+        changes.append("Azure DevOps communication is manual only")
 
     updated = history.update_workflow_settings(routing_mode, azure_communication)
     if changes:
-        return updated, f"Ho aggiornato il workflow: {', '.join(changes)}. {_workflow_summary(updated)}"
+        return updated, f"I updated the workflow: {', '.join(changes)}. {_workflow_summary(updated)}"
     return updated, (
-        "Non ho modificato il workflow perché non ho riconosciuto una direttiva applicabile. "
-        "Puoi scrivere, ad esempio: “Copilot prima, Claude come fallback” oppure "
-        "“richiedi approvazione prima della PR”. Stato attuale: "
+        "I did not change the workflow because I did not recognize an applicable instruction. "
+        "For example, you can write in Italian: “Copilot prima, Claude come fallback” or "
+        "“richiedi approvazione prima della PR”. Current state: "
         f"{_workflow_summary(updated)}"
     )
 
@@ -992,9 +1075,9 @@ def api_get_workflow() -> dict:
 @app.put("/api/workflow")
 def api_update_workflow(body: WorkflowSettingsBody) -> dict:
     if body.routing_mode not in _WORKFLOW_ROUTING_MODES:
-        raise HTTPException(400, detail="Modalità routing non valida")
+        raise HTTPException(400, detail="Invalid routing mode")
     if body.azure_communication not in _AZURE_COMMUNICATION_MODES:
-        raise HTTPException(400, detail="Modalità comunicazione Azure non valida")
+        raise HTTPException(400, detail="Invalid Azure communication mode")
     settings = history.update_workflow_settings(body.routing_mode, body.azure_communication)
     return {"settings": settings, "summary": _workflow_summary(settings)}
 
@@ -1003,7 +1086,7 @@ def api_update_workflow(body: WorkflowSettingsBody) -> dict:
 def api_workflow_chat(body: TextBody) -> dict:
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, detail="Il messaggio non può essere vuoto")
+        raise HTTPException(400, detail="Message cannot be empty")
     history.add_workflow_chat_message("user", text)
     settings, response = _apply_workflow_chat_request(text, history.get_workflow_settings())
     history.add_workflow_chat_message("assistant", response)
@@ -1057,22 +1140,22 @@ def api_get_quality(work_item_id: int) -> dict | None:
 def api_run_quality(work_item_id: int) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_IMPLEMENTED not in tags:
-        raise HTTPException(409, detail="Le verifiche sono disponibili dopo l'implementazione")
+        raise HTTPException(409, detail="Checks are available after implementation")
 
     branch = history.get_branch_for_work_item(work_item_id)
     if branch is None:
-        raise HTTPException(409, detail=f"Nessun branch noto per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No known branch for work item #{work_item_id}")
     try:
         review_loop.checkout_pr_branch(cfg, branch)
         commit_sha, checks = quality_checks.run_quality_checks(cfg)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile preparare il branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to prepare branch {branch}: {exc.stderr}")
 
     status = "passed" if checks and all(check["status"] == "passed" for check in checks) else (
         "failed" if checks else "unavailable"
@@ -1080,9 +1163,9 @@ def api_run_quality(work_item_id: int) -> dict:
     history.record_quality_run(work_item_id, branch, commit_sha, status, checks)
     action = "quality_passed" if status == "passed" else "quality_failed"
     message = (
-        f"Work item #{work_item_id}: verifiche tecniche superate"
+        f"Work item #{work_item_id}: technical checks passed"
         if status == "passed"
-        else f"Work item #{work_item_id}: verifiche tecniche non superate o non disponibili"
+        else f"Work item #{work_item_id}: technical checks did not pass or are unavailable"
     )
     _log_manual_action(action, message, work_item_id=work_item_id, branch=branch)
     history.add_notification(
@@ -1103,39 +1186,39 @@ def api_get_ticket_chat(work_item_id: int) -> list[dict]:
 def api_send_ticket_chat(work_item_id: int, body: TextBody) -> dict:
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, detail="Il messaggio non puo' essere vuoto")
+        raise HTTPException(400, detail="Message cannot be empty")
 
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     item = wit_client.get_work_item(work_item_id, fields=["System.Title", "System.Description"])
     branch = history.get_branch_for_work_item(work_item_id)
     if branch is None:
-        raise HTTPException(409, detail=f"Nessun branch noto per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No known branch for work item #{work_item_id}")
     try:
         review_loop.checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile fare checkout del branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to check out branch {branch}: {exc.stderr}")
 
     history.add_ticket_chat_message(work_item_id, "user", text)
     conversation = history.get_ticket_chat_messages(work_item_id)
     transcript = "\n\n".join(
-        f"{'Utente' if message['role'] == 'user' else 'Agente'}: {message['content']}"
+        f"{'User' if message['role'] == 'user' else 'Agent'}: {message['content']}"
         for message in conversation
     )
     title = item.fields.get("System.Title", f"Work item #{work_item_id}")
     description = state.html_to_plain_text(item.fields.get("System.Description", "") or "")
     graphify_section = get_graphify_context(cfg.repo_path, text)
     prompt = (
-        f"Stai assistendo l'utente sul work item #{work_item_id}: {title}.\n"
-        f"Descrizione:\n{description}\n\nBranch locale: '{branch}'.\n\n"
-        f"Conversazione:\n{transcript}\n\n"
+        f"You are assisting the user with work item #{work_item_id}: {title}.\n"
+        f"Description:\n{description}\n\nLocal branch: '{branch}'.\n\n"
+        f"Conversation:\n{transcript}\n\n"
         f"{graphify_section}\n\n"
-        "Analizza la nuova richiesta e rispondi in italiano con un piano concreto dei prossimi passi, "
-        "rischi e verifiche. Non modificare file, non fare commit e non fare push."
+        "Analyze the new request and respond in English with a concrete plan for the next steps, "
+        "risks, and checks. Do not modify files, commit, or push."
     )
     run_id = history.start_run("dashboard")
     result = run_claude(
@@ -1145,7 +1228,7 @@ def api_send_ticket_chat(work_item_id: int, body: TextBody) -> dict:
     history.add_ticket_chat_message(work_item_id, "assistant", result.output)
     history.log_event(
         run_id, "ticket_chat_planned",
-        f"Ticket #{work_item_id}: piano generato dalla chat posteriore",
+        f"Ticket #{work_item_id}: plan generated from the follow-up chat",
         work_item_id=work_item_id, branch=branch, detail=result.output,
     )
     history.finish_run(run_id, "success")
@@ -1161,7 +1244,7 @@ def api_trigger_review_for_ticket(work_item_id: int) -> dict:
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_PR_OPEN not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non ha una PR aperta da revisionare")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} has no open PR to review")
 
     return _start_script_process("review", extra_env={"REVIEW_WORK_ITEM_ID": str(work_item_id)})
 
@@ -1170,7 +1253,7 @@ def api_trigger_review_for_ticket(work_item_id: int) -> dict:
 def api_get_plan(work_item_id: int) -> dict:
     plan = history.get_plan(work_item_id)
     if plan is None:
-        raise HTTPException(404, detail=f"Nessun piano trovato per il work item #{work_item_id}")
+        raise HTTPException(404, detail=f"No plan found for work item #{work_item_id}")
     return plan
 
 
@@ -1178,9 +1261,9 @@ def api_get_plan(work_item_id: int) -> dict:
 def api_update_plan(work_item_id: int, body: TextBody) -> dict:
     plan = history.get_plan(work_item_id)
     if plan is None:
-        raise HTTPException(404, detail=f"Nessun piano trovato per il work item #{work_item_id}")
+        raise HTTPException(404, detail=f"No plan found for work item #{work_item_id}")
     if plan["approved_at"] is not None:
-        raise HTTPException(409, detail="Il piano e' gia' stato approvato, non e' piu' modificabile")
+        raise HTTPException(409, detail="The plan has already been approved and can no longer be changed")
     history.update_plan_text(work_item_id, body.text)
     return history.get_plan(work_item_id)
 
@@ -1189,7 +1272,7 @@ def api_update_plan(work_item_id: int, body: TextBody) -> dict:
 def api_approve_plan(work_item_id: int) -> dict:
     plan = history.get_plan(work_item_id)
     if plan is None:
-        raise HTTPException(404, detail=f"Nessun piano trovato per il work item #{work_item_id}")
+        raise HTTPException(404, detail=f"No plan found for work item #{work_item_id}")
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
@@ -1198,7 +1281,7 @@ def api_approve_plan(work_item_id: int) -> dict:
     state.remove_tag(wit_client, cfg.project, work_item_id, state.TAG_PLAN_READY)
     state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_PLAN_APPROVED)
     _log_manual_action(
-        "plan_approved", f"Work item #{work_item_id}: piano approvato dall'utente",
+        "plan_approved", f"Work item #{work_item_id}: plan approved by the user",
         work_item_id=work_item_id,
     )
 
@@ -1217,19 +1300,19 @@ def api_approve_plan(work_item_id: int) -> dict:
 def api_send_correction(work_item_id: int, body: TextBody) -> dict:
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, detail="Testo della correzione vuoto")
+        raise HTTPException(400, detail="Correction text is empty")
 
     run = history.get_in_progress_run_for_work_item(work_item_id)
     if run is None:
         raise HTTPException(
             409,
-            detail=f"Nessuna lavorazione in corso per il work item #{work_item_id}: "
-                   "la correzione non verrebbe consegnata",
+            detail=f"No work is in progress for work item #{work_item_id}: "
+                   "the correction would not be delivered",
         )
 
     correction_id = history.add_correction(run["id"], work_item_id, text)
     history.log_event(
-        run["id"], "correction_sent", f"Work item #{work_item_id}: correzione inviata dall'utente",
+        run["id"],         "correction_sent", f"Work item #{work_item_id}: correction sent by the user",
         work_item_id=work_item_id, detail=text,
     )
     return {"work_item_id": work_item_id, "run_id": run["id"], "correction_id": correction_id}
@@ -1239,18 +1322,18 @@ def api_send_correction(work_item_id: int, body: TextBody) -> dict:
 def api_request_fix(work_item_id: int, body: TextBody) -> dict:
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, detail="Testo della correzione vuoto")
+        raise HTTPException(400, detail="Correction text is empty")
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_IMPLEMENTED not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non e' in fase di verifica")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} is not in the verification stage")
 
     fix_id = history.add_fix(work_item_id, text)
     state.add_tag(wit_client, cfg.project, work_item_id, state.TAG_FIX_REQUESTED)
     _log_manual_action(
-        "fix_requested", f"Work item #{work_item_id}: correzione richiesta dall'utente",
+        "fix_requested", f"Work item #{work_item_id}: correction requested by the user",
         work_item_id=work_item_id, detail=text,
     )
 
@@ -1274,18 +1357,18 @@ def api_review_code(work_item_id: int) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
         raise HTTPException(
-            409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce"
+            409, detail=f"A run is already active ({_active['script']}): try again when it finishes"
         )
 
     cfg = load_config()
     wit_client = get_connection(cfg).clients.get_work_item_tracking_client()
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_IMPLEMENTED not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non e' in fase di verifica")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} is not in the verification stage")
 
     branch = history.get_branch_for_work_item(work_item_id)
     if branch is None:
-        raise HTTPException(409, detail=f"Nessun branch noto per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No known branch for work item #{work_item_id}")
 
     subprocess.run(["git", "fetch", "origin", branch], cwd=cfg.repo_path, check=True, capture_output=True, text=True)
     subprocess.run(["git", "checkout", branch], cwd=cfg.repo_path, check=True, capture_output=True, text=True)
@@ -1293,13 +1376,13 @@ def api_review_code(work_item_id: int) -> dict:
     item = wit_client.get_work_item(work_item_id, fields=["System.Title"])
     title = item.fields.get("System.Title", f"Work item #{work_item_id}")
     prompt = (
-        f"Sei un revisore di codice indipendente. Rivedi le modifiche del branch corrente "
-        f"'{branch}' rispetto a '{cfg.base_branch}' per il work item Azure DevOps "
+        f"You are an independent code reviewer. Review the changes in current branch "
+        f"'{branch}' compared with '{cfg.base_branch}' for Azure DevOps work item "
         f"#{work_item_id} ('{title}').\n\n"
-        f"Usa 'git diff {cfg.base_branch}...{branch}' per vedere le modifiche. NON modificare "
-        "il codice. Segnala problemi di correttezza, rischi, cose da migliorare o omissioni "
-        "rispetto a quello che il work item richiede. Se vuoi, esegui la suite di test "
-        "esistente per verificare che passi. Rispondi con un report sintetico in testo semplice."
+        f"Use 'git diff {cfg.base_branch}...{branch}' to view the changes. Do NOT modify "
+        "the code. Report correctness issues, risks, improvements, or omissions relative "
+        "to the work item requirements. If useful, run the existing test suite to verify "
+        "it passes. Respond with a concise plain-text report."
     )
     run_id = history.start_run("dashboard")
     result = run_claude(
@@ -1308,7 +1391,7 @@ def api_review_code(work_item_id: int) -> dict:
     )
 
     history.log_event(
-        run_id, "self_review", f"Work item #{work_item_id}: self-review del codice implementato",
+        run_id, "self_review", f"Work item #{work_item_id}: self-review of implemented code",
         work_item_id=work_item_id, branch=branch, detail=result.output,
     )
     history.finish_run(run_id, "success")
@@ -1323,7 +1406,7 @@ def api_check_pr(work_item_id: int) -> dict:
     che posta i commenti come thread REALI sulla PR di Azure DevOps."""
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     connection = get_connection(cfg)
@@ -1332,18 +1415,18 @@ def api_check_pr(work_item_id: int) -> dict:
 
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_PR_OPEN not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non ha una PR aperta da controllare")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} has no open PR to check")
 
     pr_id = review_loop.find_pr_id_for_work_item(wit_client, work_item_id)
     if pr_id is None:
-        raise HTTPException(409, detail=f"Nessuna PR collegata trovata per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No linked PR found for work item #{work_item_id}")
 
     pr = git_client.get_pull_request(cfg.repo_id, pr_id, project=cfg.project)
     branch = pr.source_ref_name.replace("refs/heads/", "", 1)
     try:
         review_loop.checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile fare checkout del branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to check out branch {branch}: {exc.stderr}")
 
     run_id = history.start_run("dashboard")
     result = review_loop.run_synthetic_pr_review(cfg, wit_client, git_client, work_item_id, pr_id, branch, run_id)
@@ -1363,11 +1446,11 @@ def api_get_pr_comments(work_item_id: int) -> list[dict]:
 
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_PR_OPEN not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non ha una PR aperta")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} has no open PR")
 
     pr_id = review_loop.find_pr_id_for_work_item(wit_client, work_item_id)
     if pr_id is None:
-        raise HTTPException(409, detail=f"Nessuna PR collegata trovata per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No linked PR found for work item #{work_item_id}")
 
     return review_loop.list_unresolved_comments(
         git_client, cfg, pr_id, work_item_id, include_dismissed=True, include_resolved=True
@@ -1378,7 +1461,7 @@ def api_get_pr_comments(work_item_id: int) -> list[dict]:
 def api_resolve_pr_comment(work_item_id: int, thread_id: int) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     cfg = load_config()
     connection = get_connection(cfg)
@@ -1387,11 +1470,11 @@ def api_resolve_pr_comment(work_item_id: int, thread_id: int) -> dict:
 
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_PR_OPEN not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non ha una PR aperta")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} has no open PR")
 
     pr_id = review_loop.find_pr_id_for_work_item(wit_client, work_item_id)
     if pr_id is None:
-        raise HTTPException(409, detail=f"Nessuna PR collegata trovata per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No linked PR found for work item #{work_item_id}")
 
     pr = git_client.get_pull_request(cfg.repo_id, pr_id, project=cfg.project)
     branch = pr.source_ref_name.replace("refs/heads/", "", 1)
@@ -1401,12 +1484,12 @@ def api_resolve_pr_comment(work_item_id: int, thread_id: int) -> dict:
     )
     target = next((c for c in comments if c["thread_id"] == thread_id), None)
     if target is None:
-        raise HTTPException(404, detail=f"Thread #{thread_id} non trovato o gia' valutato")
+        raise HTTPException(404, detail=f"Thread #{thread_id} was not found or has already been evaluated")
 
     try:
         review_loop.checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile fare checkout del branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to check out branch {branch}: {exc.stderr}")
 
     run_id = history.start_run("dashboard")
     result = review_loop.resolve_comment(
@@ -1427,16 +1510,16 @@ def api_dismiss_pr_comment(work_item_id: int, thread_id: int) -> dict:
     git_client = connection.clients.get_git_client()
     pr_id = review_loop.find_pr_id_for_work_item(wit_client, work_item_id)
     if pr_id is None:
-        raise HTTPException(409, detail=f"Nessuna PR collegata trovata per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No linked PR found for work item #{work_item_id}")
 
     comments = review_loop.list_unresolved_comments(git_client, cfg, pr_id, work_item_id)
     target = next((comment for comment in comments if comment["thread_id"] == thread_id), None)
     if target is None or target["dismissed"]:
-        raise HTTPException(404, detail=f"Commento #{thread_id} non trovato o gia' valutato")
+        raise HTTPException(404, detail=f"Comment #{thread_id} was not found or has already been evaluated")
 
     history.dismiss_thread(work_item_id, thread_id)
     _log_manual_action(
-        "comment_skipped", f"Ticket #{work_item_id}, thread #{thread_id}: commento ignorato dall'utente",
+        "comment_skipped", f"Ticket #{work_item_id}, thread #{thread_id}: comment ignored by the user",
         work_item_id=work_item_id,
     )
     return {
@@ -1452,10 +1535,10 @@ def api_dismiss_pr_comment(work_item_id: int, thread_id: int) -> dict:
 def api_restore_pr_comment(work_item_id: int, thread_id: int) -> dict:
     """Riabilita un solo commento ignorato per i successivi piani batch."""
     if thread_id not in history.get_dismissed_thread_ids(work_item_id):
-        raise HTTPException(404, detail=f"Commento #{thread_id} non e' ignorato")
+        raise HTTPException(404, detail=f"Comment #{thread_id} is not ignored")
     history.restore_thread(work_item_id, thread_id)
     _log_manual_action(
-        "comment_restored", f"Ticket #{work_item_id}, thread #{thread_id}: commento reincluso nel piano",
+        "comment_restored", f"Ticket #{work_item_id}, thread #{thread_id}: comment included in the plan again",
         work_item_id=work_item_id,
     )
     return {"work_item_id": work_item_id, "thread_id": thread_id}
@@ -1466,7 +1549,7 @@ def api_reply_and_resolve_pr_comment(work_item_id: int, thread_id: int, body: Te
     """Risponde a un thread ignorato e lo risolve direttamente su Azure DevOps."""
     text = body.text.strip()
     if not text:
-        raise HTTPException(400, detail="Il commento di risposta non puo' essere vuoto")
+        raise HTTPException(400, detail="Reply comment cannot be empty")
 
     cfg, _wit_client, git_client, pr_id, _branch = _get_pr_comment_batch_context(work_item_id)
     comments = review_loop.list_unresolved_comments(
@@ -1474,7 +1557,7 @@ def api_reply_and_resolve_pr_comment(work_item_id: int, thread_id: int, body: Te
     )
     target = next((comment for comment in comments if comment["thread_id"] == thread_id), None)
     if target is None or not target["dismissed"]:
-        raise HTTPException(409, detail=f"Il commento #{thread_id} deve essere ignorato e ancora aperto")
+        raise HTTPException(409, detail=f"Comment #{thread_id} must be ignored and still open")
 
     review_loop.reply_to_thread(git_client, cfg, pr_id, thread_id, text)
     review_loop.mark_thread_fixed(git_client, cfg, pr_id, thread_id)
@@ -1482,7 +1565,7 @@ def api_reply_and_resolve_pr_comment(work_item_id: int, thread_id: int, body: Te
     history.restore_thread(work_item_id, thread_id)
     _log_manual_action(
         "comment_resolved",
-        f"Ticket #{work_item_id}, thread #{thread_id}: risposta pubblicata e commento risolto",
+        f"Ticket #{work_item_id}, thread #{thread_id}: reply published and comment resolved",
         work_item_id=work_item_id,
     )
     return {"work_item_id": work_item_id, "thread_id": thread_id}
@@ -1495,11 +1578,11 @@ def _get_pr_comment_batch_context(work_item_id: int) -> tuple[Config, object, ob
     git_client = connection.clients.get_git_client()
     tags = state.get_tags(wit_client, work_item_id)
     if state.TAG_PR_OPEN not in tags:
-        raise HTTPException(409, detail=f"Work item #{work_item_id} non ha una PR aperta")
+        raise HTTPException(409, detail=f"Work item #{work_item_id} has no open PR")
 
     pr_id = review_loop.find_pr_id_for_work_item(wit_client, work_item_id)
     if pr_id is None:
-        raise HTTPException(409, detail=f"Nessuna PR collegata trovata per il work item #{work_item_id}")
+        raise HTTPException(409, detail=f"No linked PR found for work item #{work_item_id}")
     pr = git_client.get_pull_request(cfg.repo_id, pr_id, project=cfg.project)
     return cfg, wit_client, git_client, pr_id, pr.source_ref_name.replace("refs/heads/", "", 1)
 
@@ -1509,18 +1592,18 @@ def _get_selected_pr_comments(
     planning_notes: dict[int, str] | None = None,
 ) -> list[dict]:
     if not thread_ids or len(thread_ids) != len(set(thread_ids)):
-        raise HTTPException(400, detail="Seleziona almeno un commento distinto")
+        raise HTTPException(400, detail="Select at least one distinct comment")
     available = {
         comment["thread_id"]: comment
         for comment in review_loop.list_unresolved_comments(git_client, cfg, pr_id, work_item_id)
     }
     missing = sorted(set(thread_ids) - available.keys())
     if missing:
-        raise HTTPException(409, detail=f"Thread non piu' disponibili: {', '.join(map(str, missing))}")
+        raise HTTPException(409, detail=f"Threads are no longer available: {', '.join(map(str, missing))}")
     notes = planning_notes or {}
     unexpected_notes = set(notes) - set(thread_ids)
     if unexpected_notes:
-        raise HTTPException(400, detail="Le note devono riferirsi solo ai commenti selezionati")
+        raise HTTPException(400, detail="Notes must refer only to selected comments")
 
     selected = []
     for thread_id in thread_ids:
@@ -1536,7 +1619,7 @@ def _get_selected_pr_comments(
 def api_get_pr_comment_batch(work_item_id: int) -> dict:
     batch = history.get_pr_review_batch(work_item_id)
     if batch is None:
-        raise HTTPException(404, detail="Nessun piano di correzione in corso")
+        raise HTTPException(404, detail="No fix plan is in progress")
     return batch
 
 
@@ -1544,12 +1627,12 @@ def api_get_pr_comment_batch(work_item_id: int) -> dict:
 def api_plan_pr_comment_batch(work_item_id: int, body: ThreadBatchRequest) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     existing_batch = history.get_pr_review_batch(work_item_id)
     if existing_batch and existing_batch["status"] == "changes_applied":
         raise HTTPException(
-            409, detail="Ci sono modifiche non ancora committate: approva il commit o ripristinale prima"
+            409, detail="There are uncommitted changes: approve the commit or revert them first"
         )
     cfg, _wit_client, git_client, pr_id, branch = _get_pr_comment_batch_context(work_item_id)
     comments = _get_selected_pr_comments(
@@ -1558,7 +1641,7 @@ def api_plan_pr_comment_batch(work_item_id: int, body: ThreadBatchRequest) -> di
     try:
         review_loop.checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile fare checkout del branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to check out branch {branch}: {exc.stderr}")
 
     run_id = history.start_run("dashboard")
     try:
@@ -1566,7 +1649,7 @@ def api_plan_pr_comment_batch(work_item_id: int, body: ThreadBatchRequest) -> di
     except RuntimeError as exc:
         history.log_event(
             run_id, "comment_batch_failed",
-            f"Ticket #{work_item_id}: generazione piano non completata",
+            f"Ticket #{work_item_id}: plan generation did not complete",
             level="warning", work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=str(exc),
         )
         history.finish_run(run_id, "error")
@@ -1574,7 +1657,7 @@ def api_plan_pr_comment_batch(work_item_id: int, body: ThreadBatchRequest) -> di
     history.save_pr_review_batch(work_item_id, pr_id, branch, body.thread_ids, plan_text)
     history.log_event(
         run_id, "comment_batch_planned",
-        f"Ticket #{work_item_id}: piano creato per {len(comments)} commenti PR",
+        f"Ticket #{work_item_id}: plan created for {len(comments)} PR comments",
         work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=plan_text,
     )
     history.finish_run(run_id, "success")
@@ -1585,19 +1668,19 @@ def api_plan_pr_comment_batch(work_item_id: int, body: ThreadBatchRequest) -> di
 def api_apply_pr_comment_batch(work_item_id: int) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     batch = history.get_pr_review_batch(work_item_id)
     if batch is None or batch["status"] != "plan_ready":
-        raise HTTPException(409, detail="Non c'e' un piano pronto da approvare")
+        raise HTTPException(409, detail="There is no plan ready for approval")
     cfg, _wit_client, git_client, pr_id, branch = _get_pr_comment_batch_context(work_item_id)
     if pr_id != batch["pr_id"] or branch != batch["branch"]:
-        raise HTTPException(409, detail="La PR o il branch sono cambiati: genera un nuovo piano")
+        raise HTTPException(409, detail="The PR or branch changed: generate a new plan")
     comments = _get_selected_pr_comments(git_client, cfg, pr_id, work_item_id, batch["thread_ids"])
     try:
         review_loop.checkout_pr_branch(cfg, branch)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(409, detail=f"Impossibile fare checkout del branch {branch}: {exc.stderr}")
+        raise HTTPException(409, detail=f"Unable to check out branch {branch}: {exc.stderr}")
 
     run_id = history.start_run("dashboard")
     try:
@@ -1607,16 +1690,16 @@ def api_apply_pr_comment_batch(work_item_id: int) -> dict:
     except RuntimeError as exc:
         history.log_event(
             run_id, "comment_batch_failed",
-            f"Ticket #{work_item_id}: applicazione piano non completata",
+            f"Ticket #{work_item_id}: plan application did not complete",
             level="warning", work_item_id=work_item_id, branch=branch, pr_id=pr_id, detail=str(exc),
         )
         history.finish_run(run_id, "error")
         raise HTTPException(409, detail=str(exc)) from exc
     if result["applied"]:
         history.update_pr_review_batch_status(work_item_id, "changes_applied")
-        action, message, level = "comment_batch_applied", f"Ticket #{work_item_id}: modifiche applicate, in attesa di approvazione commit", "info"
+        action, message, level = "comment_batch_applied", f"Ticket #{work_item_id}: changes applied, awaiting commit approval", "info"
     else:
-        action, message, level = "comment_batch_failed", f"Ticket #{work_item_id}: modifiche batch non completate", "warning"
+        action, message, level = "comment_batch_failed", f"Ticket #{work_item_id}: batch changes did not complete", "warning"
     history.log_event(
         run_id, action, message, level=level, work_item_id=work_item_id, branch=branch, pr_id=pr_id,
         detail=result["output"],
@@ -1629,27 +1712,27 @@ def api_apply_pr_comment_batch(work_item_id: int) -> dict:
 def api_commit_pr_comment_batch(work_item_id: int) -> dict:
     _reconcile_active_process()
     if _active["process"] is not None:
-        raise HTTPException(409, detail=f"Un run e' gia' attivo ({_active['script']}): riprova quando finisce")
+        raise HTTPException(409, detail=f"A run is already active ({_active['script']}): try again when it finishes")
 
     batch = history.get_pr_review_batch(work_item_id)
     if batch is None or batch["status"] != "changes_applied":
-        raise HTTPException(409, detail="Prima approva e applica le modifiche del piano")
+        raise HTTPException(409, detail="Approve and apply the plan changes first")
     cfg, _wit_client, git_client, pr_id, branch = _get_pr_comment_batch_context(work_item_id)
     if pr_id != batch["pr_id"] or branch != batch["branch"]:
-        raise HTTPException(409, detail="La PR o il branch sono cambiati: genera un nuovo piano")
+        raise HTTPException(409, detail="The PR or branch changed: generate a new plan")
 
     run_id = history.start_run("dashboard")
     result = review_loop.commit_comment_batch(cfg, work_item_id, branch, run_id)
     if result["committed"]:
         for thread_id in batch["thread_ids"]:
             review_loop.reply_to_thread(
-                git_client, cfg, pr_id, thread_id, "Ho applicato e pubblicato la correzione approvata."
+                git_client, cfg, pr_id, thread_id, "I applied and published the approved fix."
             )
             review_loop.mark_thread_fixed(git_client, cfg, pr_id, thread_id)
         history.update_pr_review_batch_status(work_item_id, "completed")
-        action, message, level = "comment_batch_committed", f"Ticket #{work_item_id}: correzioni committate e pubblicate", "info"
+        action, message, level = "comment_batch_committed", f"Ticket #{work_item_id}: fixes committed and published", "info"
     else:
-        action, message, level = "comment_batch_commit_failed", f"Ticket #{work_item_id}: commit o push batch non riuscito", "warning"
+        action, message, level = "comment_batch_commit_failed", f"Ticket #{work_item_id}: batch commit or push failed", "warning"
     history.log_event(
         run_id, action, message, level=level, work_item_id=work_item_id, branch=branch, pr_id=pr_id,
         detail=result["output"],

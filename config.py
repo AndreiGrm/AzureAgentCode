@@ -45,7 +45,7 @@ class ConfigError(RuntimeError):
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise ConfigError(f"Variabile d'ambiente obbligatoria non impostata: {name}")
+        raise ConfigError(f"Required environment variable is not set: {name}")
     return value
 
 
@@ -66,41 +66,41 @@ class Config:
 # mascherato) e che un submit con campo vuoto lascia il valore esistente
 # invariato, invece di svuotarlo.
 SETTINGS_SCHEMA: list[tuple[str, str, bool, bool]] = [
-    ("ORG_URL", "URL organizzazione Azure DevOps", True, False),
-    ("PROJECT", "Progetto", True, False),
+    ("ORG_URL", "Azure DevOps organization URL", True, False),
+    ("PROJECT", "Project", True, False),
     ("TEAM", "Team", True, False),
     ("REPO_ID", "Repository (nome o GUID)", True, False),
-    ("REPO_PATH", "Path locale del repository git", True, False),
-    ("BASE_BRANCH", "Branch base", False, False),
+    ("REPO_PATH", "Local Git repository path", True, False),
+    ("BASE_BRANCH", "Base branch", False, False),
     ("AZURE_DEVOPS_PAT", "Personal Access Token Azure DevOps", True, True),
-    ("AGENT_PROVIDER", "Provider agente", False, False),
-    ("AGENT_MODEL", "Modello agente predefinito", False, False),
-    ("AGENT_COMMAND", "Comando agente esterno (legge il prompt da stdin)", False, False),
-    ("AGENT_MAX_OUTPUT_TOKENS", "Limite token di output per esecuzione", False, False),
-    ("AGENT_TOKEN_BUDGET", "Budget token totale", False, False),
+    ("AGENT_PROVIDER", "Agent provider", False, False),
+    ("AGENT_MODEL", "Default agent model", False, False),
+    ("AGENT_COMMAND", "External agent command (reads the prompt from stdin)", False, False),
+    ("AGENT_MAX_OUTPUT_TOKENS", "Output token limit per run", False, False),
+    ("AGENT_TOKEN_BUDGET", "Total token budget", False, False),
 ]
 
 SETTINGS_SELECT_OPTIONS: dict[str, list[tuple[str, str]]] = {
     "AGENT_PROVIDER": [
-        ("claude_sdk", "Claude Code (predefinito)"),
-        ("command", "Agente CLI esterno"),
-        ("copilot_cli", "GitHub Copilot CLI (sperimentale)"),
+        ("claude_sdk", "Claude Code (default)"),
+        ("command", "External CLI agent"),
+        ("copilot_cli", "GitHub Copilot CLI (experimental)"),
     ],
     "AGENT_MODEL": [
-        ("", "Predefinito di Claude Code"),
-        ("opus", "Claude Opus — massima qualità"),
-        ("sonnet", "Claude Sonnet — bilanciato"),
-        ("haiku", "Claude Haiku — veloce ed economico"),
+        ("", "Claude Code default"),
+        ("opus", "Claude Opus — highest quality"),
+        ("sonnet", "Claude Sonnet — balanced"),
+        ("haiku", "Claude Haiku — fast and economical"),
     ],
     "AGENT_MAX_OUTPUT_TOKENS": [
-        ("", "Nessun limite aggiuntivo"),
+        ("", "No additional limit"),
         ("1024", "1.024 token"),
         ("2048", "2.048 token"),
         ("4096", "4.096 token"),
         ("8192", "8.192 token"),
     ],
     "AGENT_TOKEN_BUDGET": [
-        ("", "Nessun budget"),
+        ("", "No budget"),
         ("100000", "100.000 token"),
         ("500000", "500.000 token"),
         ("1000000", "1.000.000 token"),
@@ -131,7 +131,7 @@ def get_settings() -> list[dict]:
         if options is not None and value not in {option[0] for option in options}:
             # I valori esistenti devono restare modificabili anche se non sono
             # tra le scelte predefinite della dashboard.
-            options = [(value, f"Valore configurato: {value}"), *options]
+            options = [(value, f"Configured value: {value}"), *options]
         settings.append({
             "key": key,
             "label": label,

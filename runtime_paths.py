@@ -21,7 +21,7 @@ def data_dir() -> Path:
     if getattr(sys, "frozen", False):
         local_app_data = os.environ.get("LOCALAPPDATA")
         if not local_app_data:
-            raise RuntimeError("LOCALAPPDATA non e' disponibile per salvare i dati dell'app.")
+            raise RuntimeError("LOCALAPPDATA is unavailable for saving application data.")
         path = Path(local_app_data) / APP_DATA_DIR_NAME
         path.mkdir(parents=True, exist_ok=True)
         return path
