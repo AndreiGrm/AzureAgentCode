@@ -1,0 +1,67 @@
+name: Publish desktop release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 1.0.3"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Set release version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "${{ inputs.version }}"
+          } else {
+            "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version must use X.Y.Z format."
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip; python -m pip install -r requirements.txt
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: winget install --id JRSoftware.InnoSetup --exact --silent --accept-package-agreements --accept-source-agreements
+
+      - name: Build desktop installer
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --distpath dist-release --name "Azure DevOps Agent Dashboard" --icon .\dashboard.ico --add-data "static;static" --add-data "prompts;prompts" --add-data "dashboard.ico;." --collect-all azure.devops --collect-all msrest --collect-all webview --collect-all pythonnet --collect-all clr_loader .\desktop_app.py
+          & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.value }}" .\installer.iss
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.version.outputs.value }}"
+          $installer = "installer-output\Azure-DevOps-Agent-Dashboard-Setup-${{ steps.version.outputs.value }}.exe"
+          gh release create $tag $installer --title "Azure DevOps Agent Dashboard $tag" --generate-notes

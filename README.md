@@ -172,6 +172,21 @@ Quando l'app desktop installata trova un nuovo `Setup.exe`, il pulsante
 l'hash SHA-256 fornito da GitHub, chiude l'app e avvia l'installazione. I dati
 in `%LOCALAPPDATA%\Azure DevOps Agent Dashboard` non vengono rimossi.
 
+### Publishing a desktop release
+
+GitHub Actions builds and publishes a desktop release automatically whenever a
+version tag is pushed. For example, to publish version `1.0.3`:
+
+```powershell
+git tag v1.0.3
+git push origin v1.0.3
+```
+
+The **Publish desktop release** workflow runs on a Windows runner, builds the
+installer, and creates the GitHub Release with the `Setup.exe` attached. Use
+only `vX.Y.Z` tags. The same workflow can also be started manually from the
+Actions page by entering a version number.
+
 ### Avvio diagnostico nel browser
 
 ```bash
