@@ -1012,7 +1012,9 @@ async function checkAppUpdate() {
       hint.textContent = `Versione installata: ${update.current_version}. È disponibile ${update.latest_version}.`;
       releaseButton.hidden = !appReleaseUrl;
     } else if (!update.latest_version) {
-      hint.textContent = `Versione installata: ${update.current_version}. Non è ancora stata pubblicata una Release GitHub.`;
+      hint.textContent = update.access_required
+        ? `Versione installata: ${update.current_version}. La Release è privata: inserisci un token GitHub con accesso al repository nelle Impostazioni.`
+        : `Versione installata: ${update.current_version}. Non è ancora stata pubblicata una Release GitHub.`;
     } else {
       hint.textContent = `Versione installata: ${update.current_version}. Hai già l'ultima versione (${update.latest_version}).`;
     }

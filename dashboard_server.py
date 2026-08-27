@@ -280,12 +280,16 @@ def _version_key(version: str) -> tuple[int, ...]:
 @app.get("/api/app-update")
 def api_app_update() -> dict:
     url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
+    release_token = os.environ.get("GITHUB_RELEASE_TOKEN", "").strip()
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Azure-DevOps-Agent-Dashboard",
+    }
+    if release_token:
+        headers["Authorization"] = f"Bearer {release_token}"
     request = UrlRequest(
         url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "Azure-DevOps-Agent-Dashboard",
-        },
+        headers=headers,
     )
     try:
         with urlopen(request, timeout=10) as response:
@@ -298,6 +302,7 @@ def api_app_update() -> dict:
                 "update_available": False,
                 "release_url": "",
                 "release_name": "",
+                "access_required": not bool(release_token),
             }
         raise HTTPException(502, detail=f"GitHub ha risposto con HTTP {exc.code}") from exc
     except URLError as exc:
@@ -318,6 +323,7 @@ def api_app_update() -> dict:
         "update_available": update_available,
         "release_url": release.get("html_url", ""),
         "release_name": release.get("name") or latest_version,
+        "access_required": False,
     }
 
 
